@@ -1,154 +1,184 @@
 function main(workbook: ExcelScript.Workbook) {
-  // --- BLOQUE 1: CONFIGURACIÓN Y SEGURIDAD INICIAL ---
-  const hojaInput = workbook.getWorksheet("INPUT_DESVIOS");
-  const hojaMaestros = workbook.getWorksheet("MAESTROS");
-  const CLAVE_SEGURIDAD = hojaMaestros.getRange("XFD1").getText();
-  // 1. DESPROTEGER INPUT (Necesario para limpiar el mensaje)
-  try {
-    hojaInput.getProtection().unprotect(CLAVE_SEGURIDAD);
-  } catch (e) {
-    console.log("Input ya estaba desprotegida o clave incorrecta.");
+  // 1. CONFIGURACIÓN Y CONSTANTES
+  const SHEET_INPUT = "INPUT_DESVIOS";
+  const SHEET_BD = "BD_DESVIOS";
+  const SHEET_MAESTROS = "MAESTROS";
+  const TABLE_BD = "TablaDesvios"; 
+  // 1. A) Coordenadas Exactas
+  const COORD = {
+    FECHA_SUCESO: "C6",
+    FECHA_REGISTRO: "C7",
+    FECHA_QA: "C8",
+    PLANTA: "C10",
+    TERCERISTA: "C12",
+    DESC: "C14",
+    ETAPA_OCURRENCIA: "C16",
+    ETAPA_DETECCION: "C18",
+    CLASIFICACION: "C20",
+    IMPACTO: "C22",
+    OBSERVACIONES: "C24",
+    AUTOR: "C26",
+    MOTIVO: "C28"
+  };
+
+  const RANGO_MENSAJES = "D1:F3"; 
+  const CELL_CLAVE = "XFD1";
+
+  // 1. B) Colores UX
+  const UX = {
+    EXITO_BG: "#D4EDDA",
+    EXITO_TXT: "#155724",
+    ERROR_BG: "#F8D7DA",
+    ERROR_TXT: "#721C24"
+  };
+
+  // 1. C) FUNCIÓN HELPER ENCAPSULADA
+  // Al estar dentro de main, no choca con otros scripts
+  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string, colors: typeof UX ) {
+    const rango = ws.getRange(dir);
+    rango.setValue(texto);
+    rango.getFormat().getFill().setColor(UX.ERROR_BG);
+    rango.getFormat().getFont().setColor(UX.ERROR_TXT);
+    rango.getFormat().setWrapText(true);
+    rango.select()
+  }
+  // ------------------------------------------------------------
+
+  const wsInput = workbook.getWorksheet(SHEET_INPUT)!;
+  const wsBD = workbook.getWorksheet(SHEET_BD)!;
+  const wsMaestros = workbook.getWorksheet(SHEET_MAESTROS)!;
+  if (!wsInput || !wsBD || !wsMaestros) {
+      throw new Error("Faltan hojas críticas (INPUT, BD o MAESTROS).");
   }
 
-  // 2. CONFIGURAR ÁREA DE MENSAJE (E4:H6)
-  const celdaMensaje = hojaInput.getRange("E4:H6");
+  // 2. LIMPIEZA INICIAL DE UX
+  let clave = "";
+  try {
+    // 2. A) Lectura de la clave antes que nada
+    clave = wsMaestros.getRange(CELL_CLAVE).getText(); 
+    // 2. B) Desprotección de Input desvíos para limpiar  y escribir errores.
+    wsInput.getProtection().unprotect(clave)
 
-  // 3. COMBINAR CELDAS (Para que el texto no se repita)
-  celdaMensaje.merge(false);
+    // 2. C) Limpieza visual
+    const msj = wsInput.getRange(RANGO_MENSAJES);
+    msj.clear(ExcelScript.ClearApplyTo.contents);
+    msj.getFormat().getFill().clear();
+  } catch (e) {}
+  
+  try {
+    // 3. LECTURA DE DATOS
+    
+    const fSuceso = wsInput.getRange(COORD.FECHA_SUCESO).getValue();
+    const fRegistro = wsInput.getRange(COORD.FECHA_REGISTRO).getValue();
+    const fQA = wsInput.getRange(COORD.FECHA_QA).getValue();
+    const planta = wsInput.getRange(COORD.PLANTA).getText();
+    const tercerista = wsInput.getRange(COORD.TERCERISTA).getText();
+    const descripcion = wsInput.getRange(COORD.DESC).getText();
+    const etapaO = wsInput.getRange(COORD.ETAPA_OCURRENCIA).getText();
+    const etapaD = wsInput.getRange(COORD.ETAPA_DETECCION).getText();
+    const clasif = wsInput.getRange(COORD.CLASIFICACION).getText();
+    const impacto = wsInput.getRange(COORD.IMPACTO).getText();
+    const obs = wsInput.getRange(COORD.OBSERVACIONES).getText();
+    const autor = wsInput.getRange(COORD.AUTOR).getText();
 
-  // Limpieza visual
-  celdaMensaje.clear(ExcelScript.ClearApplyTo.contents);
-  celdaMensaje.getFormat().getFill().clear();
-  celdaMensaje.getFormat().getFont().setColor("Black");
-  celdaMensaje.getFormat().getFont().setBold(false);
-  // Alineación para que se vea bonito centrado
-  celdaMensaje.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
-  celdaMensaje.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
-  celdaMensaje.getFormat().setWrapText(true);
+    // 4. VALIDACIONES
+    let errores: string[] = [];
 
-  // --- BLOQUE 2: LECTURA DE INPUTS ---
-  const fechaSuceso = hojaInput.getRange("C4").getValue() as number;
-  const fechaRegistroManual = hojaInput.getRange("C5").getValue() as number;
-  const fechaRecepcionQA = hojaInput.getRange("C6").getValue() as number;
-  const planta = hojaInput.getRange("C8").getText();
-  const tercerista = hojaInput.getRange("C10").getText();
-  const descripcion = hojaInput.getRange("C12").getText();
-  const etapaOcurrencia = hojaInput.getRange("C14").getText();
-  const etapaDeteccion = hojaInput.getRange("C16").getText();
-  const clasificacion = hojaInput.getRange("C18").getText();
-  const impacto = hojaInput.getRange("C20").getText();
-  const observaciones = hojaInput.getRange("C22").getText();
-  const usuarioResponsable = hojaInput.getRange("C24").getText();
+    if (!fSuceso) errores.push("Fecha Suceso.");
+    if (!fRegistro) errores.push("Fecha Registro.");
+    if (!planta) errores.push("Planta.");
+    if (!tercerista) errores.push("Tercerista.");
+    if (!descripcion) errores.push("Descripción.");
+    if (!etapaO) errores.push("Etapa de Ocurrencia.");
+    if (!etapaD) errores.push("Etapa de Detección.");
+    if (!clasif) errores.push("Clasificación.");
+    if (!impacto) errores.push("Impacto.");
+    if ((!obs) && obs != "N/A") errores.push("Observaciones.");
+    if (!autor) errores.push("Autor.");
 
-  let esValido = true;
-  let mensajeError = "";
+    if (fSuceso && fRegistro && fRegistro < fSuceso) {
+        errores.push("⛔ F. Registro es anterior a F. Suceso.");
+    }
+    
+    // Nota: Si fQA está vacía (opcional en algunos procesos), no comparamos.
 
-  // --- BLOQUE 3: VALIDACIONES ---
-  if (fechaRegistroManual < fechaSuceso) mensajeError += "• Fecha registro anterior al suceso.\n";
-  if (fechaRecepcionQA < fechaRegistroManual) mensajeError += "• Fecha QA anterior al registro.\n";
-
-  if (esValido && mensajeError.length > 0) esValido = false;
-
-  // --- BLOQUE 4: EJECUCIÓN ---
-  if (esValido) {
-    try {
-      const hojaBD = workbook.getWorksheet("BD_DESVIOS");
-      if (!hojaBD) throw new Error("Falta hoja BD_DESVIOS.");
-
-      // DESPROTEGER BD
-      hojaBD.getProtection().unprotect(CLAVE_SEGURIDAD);
-
-      const tablaDesvios = hojaBD.getTable("TablaDesvios");
-      if (!tablaDesvios) throw new Error("Falta TablaDesvios.");
-
-      // Cálculos ID
-      let nuevoId = 1;
-      let cantidadFilas = tablaDesvios.getRowCount();
-      if (cantidadFilas > 0) {
-        let valoresID = tablaDesvios.getColumnByName("ID").getRangeBetweenHeaderAndTotal().getValues();
-        let listaNumeros = valoresID.map(fila => Number(fila[0]));
-        nuevoId = Math.max(...listaNumeros) + 1;
-      }
-      let fechaHoraSistema = new Date().toLocaleString();
-
-      // Diccionario
-      const datosDiccionario: { [key: string]: string | number | boolean } = {
-        "ID": nuevoId,
-        "Fecha Registro": fechaRegistroManual,
-        "Fecha Suceso": fechaSuceso,
-        "Fecha QA": fechaRecepcionQA,
-        "Planta": planta,
-        "Tercerista": tercerista,
-        "Descripción": descripcion,
-        "Etapa Ocurrencia": etapaOcurrencia,
-        "Etapa Detección": etapaDeteccion,
-        "Clasificación": clasificacion,
-        "Impacto": impacto,
-        "Observaciones": observaciones,
-        "Usuario": usuarioResponsable,
-        "Audit Trail": fechaHoraSistema
-      };
-
-      // Escritura
-      const rangoEncabezados = tablaDesvios.getHeaderRowRange();
-      const encabezadosExcel = rangoEncabezados.getValues()[0] as string[];
-      const nuevaFilaOrdenada = encabezadosExcel.map(columna => datosDiccionario[columna] ?? "");
-
-      tablaDesvios.addRow(-1, nuevaFilaOrdenada);
-
-      // Formato
-      const rangoTabla = tablaDesvios.getRange();
-      rangoTabla.getFormat().setWrapText(true);
-      rangoTabla.getFormat().autofitColumns();
-      rangoTabla.getFormat().autofitRows();
-
-      // Limpieza Formulario (Hasta C24)
-      hojaInput.getRange("C4:C24").clear(ExcelScript.ClearApplyTo.contents);
-
-      // Éxito
-      celdaMensaje.setValue(`✅ Desvío #${nuevoId} guardado.`);
-      celdaMensaje.getFormat().getFill().setColor("#DFF6DD");
-      celdaMensaje.getFormat().getFont().setColor("#006600");
-      celdaMensaje.getFormat().getFont().setBold(true);
-
-      // RE-PROTEGER BD
-      hojaBD.getProtection().protect({
-        allowInsertRows: false,
-        allowDeleteRows: false,
-        allowFormatCells: false,
-        allowAutoFilter: true,
-        allowSort: true
-      }, CLAVE_SEGURIDAD);
-
-    } catch (error) {
-      try {
-        workbook.getWorksheet("BD_DESVIOS").getProtection().protect({ allowAutoFilter: true }, CLAVE_SEGURIDAD);
-      } catch (e) { }
-
-      celdaMensaje.setValue("⛔ ERROR:\n" + error.message);
-      celdaMensaje.getFormat().getFill().setColor("#FFDDDD");
+    if (fRegistro && fQA && fQA < fRegistro) {
+        errores.push("⛔ F. Recepción QA es anterior a F. Registro.");
     }
 
-  } else {
-    console.log(mensajeError);
-    celdaMensaje.setValue("⚠️ DATOS INVÁLIDOS:\n" + mensajeError);
-    celdaMensaje.getFormat().getFill().setColor("#FFFFCC");
-    celdaMensaje.getFormat().getFont().setColor("#996600");
-  }
+    if (errores.length > 0) {
+      reportarError(wsInput, RANGO_MENSAJES, "❌ FALTAN DATOS:\n" + errores.join(" - "), UX);
+    } else {
 
-  // --- CIERRE FINAL: RE-PROTEGER INPUT ---
-  try {
-    // Solo usamos las propiedades estándar permitidas en Office Scripts
-    hojaInput.getProtection().protect({
-      allowFormatCells: false,
-      allowFormatColumns: false,
-      allowFormatRows: false,
-      allowInsertRows: false,
-      allowDeleteRows: false,
-      allowSort: false,
-      allowAutoFilter: false
-    }, CLAVE_SEGURIDAD);
-  } catch (e) {
-    console.log("No se pudo reproteger Input.");
+      // 5. ESCRITURA SEGURA
+      try {
+        // 5. A) Descprotección de BD_DESVIOS
+        wsBD.getProtection().unprotect(String(clave));
+        const tablaDesvios = wsBD.getTable(TABLE_BD);
+        if (!tablaDesvios) throw new Error("Falta TablaDesvios.");
+
+        let nuevoId = 1;
+        let cantidadFilas = tablaDesvios.getRowCount();
+        if (cantidadFilas > 0) {
+          let valoresID = tablaDesvios.getColumnByName("ID").getRangeBetweenHeaderAndTotal().getValues();
+          let listaNumeros = valoresID.map(fila => Number(fila[0]));
+          nuevoId = Math.max(...listaNumeros) + 1;
+        }
+        const idDesvio = nuevoId;                
+        // 5. B) PREPARAR DATOS
+        const datosDiccionario: { [key: string]: string | number | boolean } = {
+          "ID": idDesvio,
+          "Estado": "Abierto",
+          "Fecha Suceso": fSuceso,
+          "Fecha Registro": fRegistro,
+          "Fecha QA": fQA,
+          "Planta": planta,
+          "Tercerista": tercerista,
+          "Descripción": descripcion,
+          "Etapa Ocurrencia": etapaO,
+          "Etapa Detección": etapaD,
+          "Clasificación": clasif,
+          "Impacto": impacto,
+          "Observaciones": obs,
+          "Usuario": autor,
+          "Audit Trail": new Date().toLocaleString()
+        };
+
+        // 5. C) ESCRITURA         
+        // Lectura de los encabezados de la Fila 0
+        const rangoHeaders = tablaDesvios.getHeaderRowRange(); 
+        // Se obtienen los valores directos
+        const encabezados = rangoHeaders.getValues()[0] as string[];
+
+        // Mapeo de los datos
+        const filaAInsertar = encabezados.map(col => datosDiccionario[col] ?? "");
+
+        tablaDesvios.addRow(-1, filaAInsertar);
+
+        const rangoTabla = tablaDesvios.getRange();
+          rangoTabla.getFormat().setWrapText(true);
+          rangoTabla.getFormat().autofitColumns();
+          rangoTabla.getFormat().autofitRows();
+
+        // 5. D) LIMPIEZA Y ÉXITO
+        wsInput.getRange("C6:C28").clear(ExcelScript.ClearApplyTo.contents); 
+
+        const msj = wsInput.getRange(RANGO_MENSAJES);
+        msj.setValue(`✅ Desvío ${idDesvio} registrado correctamente.`);
+        msj.getFormat().getFill().setColor(UX.EXITO_BG);
+        msj.getFormat().getFont().setColor(UX.EXITO_TXT);
+        msj.getFormat().getFont().setBold(true);
+        msj.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+        msj.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+        msj.select()
+
+      } catch (error) {
+        reportarError(wsInput, RANGO_MENSAJES, "❌ ERROR CRÍTICO:\n" + error, UX);
+      } }
+      } finally {
+      // 6. SEGURIDAD: Re-proteger de forma defensiva
+      // Se usa el "Pattern de Silencio": Si falla es porque ya estaba protegida.
+      try { if (wsBD) wsBD.getProtection().protect(undefined, String(clave)); } catch (e) {}
+      try { if (wsInput) wsInput.getProtection().protect(undefined, String(clave)); } catch (e) {}
   }
 }

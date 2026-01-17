@@ -66,7 +66,7 @@ def main() -> None:
         # 2. BUCLE PRINCIPAL
 
         for archivo in archivos_repo:
-            if archivo.endswith(".ts"):
+            if archivo.endswith(".ts") and not archivo.endswith(".d.ts"):
                 nombre_base: str = archivo[:-3]
                 nombre_osts: str = nombre_base + ".osts"
 

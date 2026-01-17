@@ -1,148 +1,148 @@
 function main(workbook: ExcelScript.Workbook) {
-    // --- BLOQUE 1: CONFIGURACIÓN INICIAL ---
-    const hojaInput = workbook.getWorksheet("INPUT_DESVIOS");
-    const hojaMaestros = workbook.getWorksheet("MAESTROS");
+  // 1. CONFIGURACIÓN Y CONSTANTES
+  // 1. A) Hojas
+  const SHEET_INPUT = "INPUT_DESVIOS";
+  const SHEET_BD = "BD_DESVIOS";
+  const SHEET_MAESTROS = "MAESTROS";
 
-    // Variable para la clave. La inicializamos vacía.
-    let CLAVE_SEGURIDAD = "";
+  // 1. B) Rango de Mensajes UX
+  const RANGO_MENSAJES = "D1:F3";
+  const CELL_CLAVE = "XFD1";
 
-    // VALIDACIÓN DE DEPENDENCIA: ¿Existe la hoja de configuración?
-    if (hojaMaestros) {
-        // Si existe, leemos la clave
-        CLAVE_SEGURIDAD = hojaMaestros.getRange("XFD1").getText();
-    } else {
-        // Si no existe, es un error crítico de infraestructura.
-        // No usamos return. Lanzamos una excepción para avisar al sistema.
-        throw new Error("ERROR CRÍTICO: No se encuentra la hoja 'MAESTROS' necesaria para la seguridad.");
+  // 1. C) Mapa de Mapeo: "Nombre Columna en BD" => "Celda en INPUT"
+  const MAPA_LECTURA: { [key: string]: string } = {
+    "Fecha Suceso": "C6",
+    "Estado": "C3",
+    "Fecha Registro": "C7",
+    "Fecha QA": "C8",
+    "Planta": "C10",
+    "Tercerista": "C12",
+    "Descripción": "C14",
+    "Etapa Ocurrencia": "C16",
+    "Etapa Detección": "C18",
+    "Clasificación": "C20",
+    "Impacto": "C22",
+    "Observaciones": "C24",
+    "Usuario": "C26",
+    "Motivo": "C28"
+  };
+  // 1. D) Celda input y limpieza
+  const INPUT_ID = "C2"; 
+  const RANGO_LIMPIEZA = "C3:C28"; 
+
+  // 1. E) Colores UX
+  const UX = {
+    EXITO_BG: "#D4EDDA",
+    EXITO_TXT: "#155724",
+    ERROR_BG: "#F8D7DA",
+    ERROR_TXT: "#721C24"
+  };
+
+  // 1. F) FUNCIÓN HELPER ENCAPSULADA (Office scripts no tolera la importación desde otro script, esta función se podría modularizar e importar en otro caso)
+  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string, colors: typeof UX) {
+    const rango = ws.getRange(dir);
+    rango.setValue(texto);
+    rango.getFormat().getFill().setColor(UX.ERROR_BG);
+    rango.getFormat().getFont().setColor(UX.ERROR_TXT);
+    rango.getFormat().setWrapText(true);
+    rango.select();
+  }
+  // ---------------------------------------------------------------
+
+  const wsInput = workbook.getWorksheet(SHEET_INPUT)!;
+  const wsBD = workbook.getWorksheet(SHEET_BD)!;
+  const wsMaestros = workbook.getWorksheet(SHEET_MAESTROS)!;
+
+  // 2. LIMPIEZA VISUAL INICIAL
+  // 2. A) Se limpia la pantalla antes de empezar
+  try {
+    const msj = wsInput.getRange(RANGO_MENSAJES);
+    msj.clear(ExcelScript.ClearApplyTo.contents);
+    msj.getFormat().getFill().clear();
+    
+    // 2. B) Limpieza de los campos de datos (pero NO el ID en C2)
+    wsInput.getRange(RANGO_LIMPIEZA).clear(ExcelScript.ClearApplyTo.contents);
+  } catch (e) {}
+
+  // 3. VALIDACIÓN DEL INPUT
+  const idBuscado = wsInput.getRange(INPUT_ID).getValue();
+
+  if (!idBuscado) {
+    reportarError(wsInput, RANGO_MENSAJES, "⚠️ Por favor ingresa un ID numérico en la celda C2.", UX);
+    return;
+  }
+
+  // 4. BÚSQUEDA Y LECTURA
+  let clave = "";
+  
+  // Try Global para asegurar el Finally
+  try {
+    // 4. A)) Lectura Segura de Clave
+    if (wsMaestros) {
+      clave = wsMaestros.getRange(CELL_CLAVE).getText();
     }
 
-    // --- BLOQUE 2: PREPARACIÓN DE LA HOJA (UI) ---
+    // 4. B) Unprotect Seguro
+    // Nota: Aunque para leer no es 100% obligatorio desproteger, se hace para evitar bloqueos de lectura en rangos específicos.
+    wsBD.getProtection().unprotect(String(clave));
+    wsInput.getProtection().unprotect(String(clave));
 
-    // Intentamos desproteger el Input usando la clave recuperada
-    try {
-        hojaInput.getProtection().unprotect(CLAVE_SEGURIDAD);
-    } catch (e) {
-        // Si la clave falla o ya está desprotegida, continuamos (no bloqueante para lectura)
+    // 4. C) ESTRATEGIA DE BÚSQUEDA
+    const rangoUsado = wsBD.getUsedRange();
+    if (!rangoUsado) throw new Error("La Base de Datos está vacía.");
+
+    const valoresBD = rangoUsado.getValues(); 
+    if (valoresBD.length < 2) throw new Error("No hay datos en la BD (solo encabezados).");
+
+    // 4. C) i) Identificar headers
+    const encabezados = valoresBD[0] as string[];
+    const indexID = encabezados.indexOf("ID");
+
+    if (indexID === -1) throw new Error("No se encuentra la columna 'ID' en BD_DESVIOS.");
+
+    // 4. C) ii) Buscar la fila
+    let filaEncontrada: (string | number | boolean)[] | null = null;
+
+    let i = 1; // Empezamos en 1 para saltar headers
+    while (i < valoresBD.length && !filaEncontrada) {
+        if (valoresBD[i][indexID] == idBuscado) {
+            filaEncontrada = valoresBD[i];
+        }
+        i++;
     }
 
-    // Configuración del Mensaje (Merge & Clear)
-    const celdaMensaje = hojaInput.getRange("E4:H6");
-    celdaMensaje.merge(false);
-    celdaMensaje.clear(ExcelScript.ClearApplyTo.contents);
-    celdaMensaje.getFormat().getFill().clear();
-    celdaMensaje.getFormat().getFont().setColor("Black");
-    celdaMensaje.getFormat().getFont().setBold(false);
-    celdaMensaje.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
-    celdaMensaje.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
-    celdaMensaje.getFormat().setWrapText(true);
-
-    // Limpieza de campos y testigo
-    hojaInput.getRange("C4:C24").clear(ExcelScript.ClearApplyTo.contents);
-    hojaInput.getRange("Z1").clear(ExcelScript.ClearApplyTo.contents);
-
-    try {
-        // --- BLOQUE 3: BÚSQUEDA ---
-
-        // 1. Validar ID ingresado
-        const idBuscado = hojaInput.getRange("C2").getValue() as number;
-
-        if (!idBuscado) {
-            // Error de Usuario
-            celdaMensaje.setValue("⚠️ Por favor, ingrese un ID numérico en la celda C2.");
-            celdaMensaje.getFormat().getFill().setColor("#FFFFCC");
-
-        } else {
-            // Si hay ID, procedemos a buscar
-            const hojaBD = workbook.getWorksheet("BD_DESVIOS");
-
-            if (hojaBD) {
-                const tablaDesvios = hojaBD.getTable("TablaDesvios");
-
-                if (tablaDesvios) {
-                    const columnaID = tablaDesvios.getColumnByName("ID");
-                    const valoresID = columnaID.getRangeBetweenHeaderAndTotal().getValues();
-
-                    let indiceFila = -1;
-                    // Bucle de búsqueda
-                    for (let i = 0; i < valoresID.length; i++) {
-                        if (valoresID[i][0] == idBuscado) {
-                            indiceFila = i;
-                            break;
-                        }
-                    }
-
-                    if (indiceFila !== -1) {
-                        // --- BLOQUE 4: LECTURA Y CARGA (Si encontramos la fila) ---
-
-                        // Obtenemos datos y encabezados
-                        const filaDatos = tablaDesvios.getRangeBetweenHeaderAndTotal().getRow(indiceFila).getValues()[0];
-                        const encabezados = tablaDesvios.getHeaderRowRange().getValues()[0] as string[];
-
-                        // Helper para mapear por nombre
-                        const getValor = (nombreColumna: string) => {
-                            const index = encabezados.indexOf(nombreColumna);
-                            // Operador ternario: Si existe el índice devuelve el dato, sino vacío.
-                            return index > -1 ? filaDatos[index] : "";
-                        };
-
-                        // Mapeo a celdas del formulario
-                        hojaInput.getRange("C4").setValue(getValor("Fecha Suceso"));
-                        hojaInput.getRange("C5").setValue(getValor("Fecha Registro"));
-                        hojaInput.getRange("C6").setValue(getValor("Fecha QA"));
-                        hojaInput.getRange("C8").setValue(getValor("Planta"));
-                        hojaInput.getRange("C10").setValue(getValor("Tercerista"));
-                        hojaInput.getRange("C12").setValue(getValor("Descripción"));
-                        hojaInput.getRange("C14").setValue(getValor("Etapa Ocurrencia"));
-                        hojaInput.getRange("C16").setValue(getValor("Etapa Detección"));
-                        hojaInput.getRange("C18").setValue(getValor("Clasificación"));
-                        hojaInput.getRange("C20").setValue(getValor("Impacto"));
-                        hojaInput.getRange("C22").setValue(getValor("Observaciones"));
-                        hojaInput.getRange("C24").setValue(getValor("Usuario"));
-
-                        // Limpiamos motivo anterior
-                        hojaInput.getRange("C26").clear(ExcelScript.ClearApplyTo.contents);
-
-                        // 🔑 TESTIGO: Guardamos el ID encontrado en Z1 (oculta)
-                        hojaInput.getRange("Z1").setValue(idBuscado);
-
-                        celdaMensaje.setValue(`✅ Desvío #${idBuscado} cargado. Listo para editar.`);
-                        celdaMensaje.getFormat().getFill().setColor("#DFF6DD");
-                        celdaMensaje.getFormat().getFont().setColor("#006600");
-                        celdaMensaje.getFormat().getFont().setBold(true);
-
-                    } else {
-                        // ID no encontrado en la Tabla
-                        celdaMensaje.setValue(`⛔ No se encontró el Desvío #${idBuscado} en la base de datos.`);
-                        celdaMensaje.getFormat().getFill().setColor("#FFDDDD");
-                        celdaMensaje.getFormat().getFont().setColor("Red");
-                    }
-                } else {
-                    throw new Error("Falta la TablaDesvios.");
-                }
-            } else {
-                throw new Error("Falta la hoja BD_DESVIOS.");
+    // 4. D) RESULTADO
+    if (filaEncontrada) {
+        // 4. D) i) Volcado de datos dinámico
+        for (const [columnaBD, celdaInput] of Object.entries(MAPA_LECTURA)) {
+            const idx = encabezados.indexOf(columnaBD);
+            if (idx !== -1) {
+                const valor = filaEncontrada[idx];
+                wsInput.getRange(celdaInput).setValue(valor);
             }
         }
 
-    } catch (error) {
-        // Manejo de errores técnicos (Nombre de hojas, tablas, etc.)
-        console.log(error);
-        celdaMensaje.setValue("ERROR DE SISTEMA:\n" + error.message);
-        celdaMensaje.getFormat().getFill().setColor("#FFDDDD");
-        celdaMensaje.getFormat().getFont().setColor("Red");
+        // 4. D) ii) Mensaje Éxito
+        const msj = wsInput.getRange(RANGO_MENSAJES);
+        msj.setValue(`✅ Desvío #${idBuscado} cargado correctamente.`);
+        msj.getFormat().getFill().setColor(UX.EXITO_BG);
+        msj.getFormat().getFont().setColor(UX.EXITO_TXT);
+        msj.getFormat().getFont().setBold(true);
+        msj.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+        msj.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+        msj.select();
 
-    } finally {
-        // --- CIERRE FINAL: RE-PROTEGER INPUT ---
-        // Esto se ejecuta SIEMPRE, haya éxito o error.
-        try {
-            hojaInput.getProtection().protect({
-                allowSelectLockedCells: true,
-                allowSelectUnlockedCells: true,
-                allowAutoFilter: false
-            }, CLAVE_SEGURIDAD);
-        } catch (e) {
-            // Si falla la reprotección (raro), no podemos hacer mucho más.
-            console.log("No se pudo reproteger Input.");
-        }
+    } else {
+        // 4. D) iii) NO ENCONTRADO
+        reportarError(wsInput, RANGO_MENSAJES, `⛔ No se encontró el ID "${idBuscado}" en la base de datos.`, UX);
     }
+
+  } catch (error) {
+    let errorTxt = (error as Error).message || String(error);
+    reportarError(wsInput, RANGO_MENSAJES, "❌ ERROR BÚSQUEDA:\n" + errorTxt, UX);
+  } finally {
+    // 5. REPROTECT FINAL (Blindado)
+    try { if (wsBD) wsBD.getProtection().protect(undefined, String(clave)); } catch (e) {}
+    try { if (wsInput) wsInput.getProtection().protect(undefined, String(clave)); } catch (e) {}
+  }
 }
