@@ -1,0 +1,38 @@
+# --- 1. ARCHIVOS DE EXCEL (DATOS) ---
+# Bloqueo de cualquier planilla que pueda tener simulaciones con datos de prueba reales.
+*.xlsx
+*.xlsm
+*.xltx
+*.xltm
+*.xlsb
+*.xls
+*.csv
+
+# --- 2. OFFICE SCRIPTS METADATA ---
+# Los osts tienen JSON con info de la cuenta usada para probar, no interesa subirlo al repo.
+# Sólo subiré los .ts limpios con el código de interés.
+*.osts
+
+# --- 3. PYTHON ---
+# Archivos temporales y caches que genera Python al correr, no son necesarios para subir al repo.
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# --- 4. CONFIGURACIÓN LOCAL (SECRETOS) ---
+# CRÍTICO: Aquí va mi ruta de One Drive real, no debe sibur nunca.
+config.py
+
+# --- 5. SISTEMA OPERATIVO E IDE ---
+# Archivos basura de Windows y configuraciones del editor.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- 6. LOGS Y BACKUPS ---
+*.log
+_BACKUPS_HISTORICOS/
