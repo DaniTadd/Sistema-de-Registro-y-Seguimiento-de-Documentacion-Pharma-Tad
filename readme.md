@@ -18,29 +18,25 @@ La elección de esta stack tecnológica se basa en tres pilares estratégicos:
 
 ---
 
-## 🚀 Roadmap de Desarrollo
+---
+
+## 🚀 Roadmap de Desarrollo (Evolución del Sistema)
 
 ### ✅ Versión 1.0: El Núcleo (Core) - *ESTABILIZADO*
-Estado actual del sistema enfocado en la integridad referencial y auditoría.
+* **Registrar/Buscar/Actualizar:** Módulos base con validación ALCOA+ y mapeo dinámico.
+* **Audit Trail:** Historial de cambios con Delta Logging y formato horario de 24hs.
 
-* **Registrar Desvío:**
-    * Generación de ID incremental automático.
-    * Validación de cronología lógica: $Fecha\ Suceso \le Fecha\ Registro \le Fecha\ QA$.
-    * Sellado de tiempo (**Audit Trail**) forzado en formato 24hs (es-AR) para eliminar ambigüedad AM/PM.
-* **Buscar Desvío:**
-    * Carga dinámica de datos en el formulario mediante mapa de lectura.
-    * **Firma Forzada:** El buscador limpia el campo "Usuario" intencionalmente para obligar al operador actual a identificarse antes de actualizar.
-* **Actualizar Desvío & Historial:**
-    * **Delta Logging:** El sistema compara el valor viejo vs. nuevo y genera un log detallado: `[Campo: Valor Viejo -> Valor Nuevo]`.
-    * **Traducción de Fechas:** Conversión de formatos seriales de Excel a fechas legibles para humanos en el historial de cambios.
-    * **Gestión de Opcionales:** Soporta campos opcionales como `FECHA QA` sin romper las reglas de integridad de otros campos obligatorios.
+### 🚧 Versión 1.1: Gestión de Impacto & Cierre (En Desarrollo)
+* **Módulo de Cierre:** Script `Cerrar Desvio.ts` para transicionar el estado a "CERRADO", activando el bloqueo de edición GMP.
+* **Módulo Acciones (CAPA):** Gestión de tareas correctivas/preventivas con seguimiento independiente.
+* **Módulo Afectaciones (Lotes):** Vinculación N:1 para identificar materiales impactados.
 
-### 🚧 Próximos Pasos (Evolución del Sistema)
+### 📊 Versión 1.2: Contexto e Investigación (Analítica & BI)
+* **Módulo RCA (Root Cause Analysis):** Tabla independiente de atributos (Equipo, Turno, Área, condiciones ambientales) vinculada por ID.
+* **Preparación para Power BI:** Este diseño relacional permite el consumo directo desde herramientas de Business Intelligence para la detección de patrones críticos, análisis de Pareto y visualización de tendencias de causa raíz.
 
-1. **Módulo Acciones (CAPA):** Desarrollo de la relación 1:N para gestionar tareas correctivas y preventivas con seguimiento de estados independientes.
-2. **Módulo Afectaciones (Lotes/Productos):** Implementación de una tabla relacional para vincular múltiples materiales impactados a un único registro de desvío.
-3. **Módulo de Contexto e Investigación (RCA):** * Creación de una tabla independiente de atributos contextuales (Equipo, Turno, Área, condiciones ambientales).
-    * Este diseño permite la expansión de variables de investigación sin alterar la estructura de la base de datos principal, facilitando el análisis de tendencias y causa raíz.
+### 🔮 Versión 2.0: Seguridad Empresarial & Automatización (Futuro)
+* **Power Automate:** Migración de la firma manual a identidad de Azure AD y notificaciones automáticas.
 
 ---
 
