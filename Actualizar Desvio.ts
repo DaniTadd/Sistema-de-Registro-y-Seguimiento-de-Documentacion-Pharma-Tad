@@ -1,201 +1,193 @@
 function main(workbook: ExcelScript.Workbook) {
-    // --- BLOQUE 1: CONFIGURACIÓN INICIAL ---
-    const hojaInput = workbook.getWorksheet("INPUT_DESVIOS");
-    const hojaMaestros = workbook.getWorksheet("MAESTROS");
-    let CLAVE_SEGURIDAD = "";
+  // 1. CONFIGURACIÓN Y CONSTANTES
+  const SHEET_INPUT = "INPUT_DESVIOS";
+  const SHEET_BD = "BD_DESVIOS";
+  const SHEET_HISTORIAL = "HISTORIAL_DESVIOS";
+  const SHEET_MAESTROS = "MAESTROS";
+  const TABLE_BD = "TablaDesvios";
+  const TABLE_HISTORIAL = "TablaHistorialDesvios";
+  const CELL_CLAVE = "XFD1";
+  const RANGO_MENSAJES = "D1:F3";
 
-    // Validación de Dependencia
-    if (hojaMaestros) {
-        CLAVE_SEGURIDAD = hojaMaestros.getRange("XFD1").getText();
-    } else {
-        throw new Error("ERROR CRÍTICO: No se encuentra la hoja 'MAESTROS'.");
+  const UX = {
+    EXITO_BG: "#D4EDDA",
+    EXITO_TXT: "#155724",
+    ERROR_BG: "#F8D7DA",
+    ERROR_TXT: "#721C24"
+  };
+
+  // --- FUNCIÓN DE REPORTE CONSISTENTE (Según Registrar/Buscar) ---
+  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string, colors: typeof UX) {
+    try {
+        const rango = ws.getRange(dir);
+        rango.setValue(texto);
+        rango.getFormat().getFill().setColor(colors.ERROR_BG);
+        rango.getFormat().getFont().setColor(colors.ERROR_TXT);
+        rango.getFormat().setWrapText(true);
+        rango.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+        rango.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+        rango.select(); 
+    } catch (writeError) {
+        console.log("💥 ERROR TÉCNICO (DEBUG):", writeError);
+        throw new Error("⛔ ERROR CRÍTICO DEL SISTEMA: " + texto);
     }
+  }
 
-    // Desproteger Input
+  /**
+   * Helper: Conversión de formatos para el Audit Trail (Legibilidad Humana).
+   * Evita que las fechas se vean como números de serie de Excel.
+   */
+  function formatearParaLog(valor: string | number | boolean, nombreCol: string): string {
+    if (typeof valor === "number" && nombreCol.toLowerCase().includes("fecha")) {
+      const fecha = new Date(Math.round((valor - 25569) * 86400 * 1000));
+      return fecha.toLocaleDateString('es-AR', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); 
+    }
+    return String(valor);
+  }
+
+  const wsInput = workbook.getWorksheet(SHEET_INPUT);
+  const wsBD = workbook.getWorksheet(SHEET_BD);
+  const wsHistorial = workbook.getWorksheet(SHEET_HISTORIAL);
+  const wsMaestros = workbook.getWorksheet(SHEET_MAESTROS);
+
+  let clave: string = "";
+
+  if (wsInput && wsBD && wsHistorial && wsMaestros) {
     try {
-        hojaInput.getProtection().unprotect(CLAVE_SEGURIDAD);
-    } catch (e) { }
+      // 2. PREPARACIÓN Y SEGURIDAD
+      clave = wsMaestros.getRange(CELL_CLAVE).getText();
+      wsInput.getProtection().unprotect(clave); 
 
-    // Configuración UI Mensaje (Merge & Clear)
-    const celdaMensaje = hojaInput.getRange("E4:H6");
-    celdaMensaje.merge(false);
-    celdaMensaje.clear(ExcelScript.ClearApplyTo.contents);
-    celdaMensaje.getFormat().getFill().clear();
-    celdaMensaje.getFormat().getFont().setColor("Black");
-    celdaMensaje.getFormat().getFont().setBold(false);
-    celdaMensaje.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
-    celdaMensaje.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
-    celdaMensaje.getFormat().setWrapText(true);
-
-    // Mapeo
-    const mapaCeldas: { [key: string]: string } = {
-        "Fecha Suceso": "C4",
-        "Fecha Registro": "C5",
-        "Fecha QA": "C6",
-        "Planta": "C8",
-        "Tercerista": "C10",
-        "Descripción": "C12",
-        "Etapa Ocurrencia": "C14",
-        "Etapa Detección": "C16",
-        "Clasificación": "C18",
-        "Impacto": "C20",
-        "Observaciones": "C22",
-        "Usuario": "C24"
-    };
-
-    const celdaIdBuscar = "C2";
-    const celdaMotivo = "C26";
-    const celdaTestigo = "Z1";
-
-    try {
-        // --- BLOQUE 2: VALIDACIONES DE INTEGRIDAD ---
-
-        // 1. Validar ID Visual vs. ID Testigo (Anti-Cambio)
-        const idVisual = hojaInput.getRange(celdaIdBuscar).getValue() as number;
-        const idTestigo = hojaInput.getRange(celdaTestigo).getValue() as number;
-
-        if (!idVisual) throw new Error("Debe indicar un ID en la celda C2.");
-
-        if (idVisual !== idTestigo) {
-            throw new Error(`⛔ ERROR DE INTEGRIDAD:\nEl ID en pantalla (${idVisual}) no coincide con el ID buscado originalmente (${idTestigo}).\n\nPresione 'BUSCAR DESVÍO' para recargar los datos correctos.`);
+      // 3. CAPTURA DINÁMICA POR ETIQUETAS (Columna B -> Columna C)
+      // Eliminamos rigidez de índices: Buscamos por el nombre en la celda de al lado.
+      const rangoForm = wsInput.getRange("B6:C28");
+      const valoresForm = rangoForm.getValues();
+      const formMap: { [key: string]: { valor: string | number | boolean, celda: ExcelScript.Range } } = {};
+      
+      valoresForm.forEach((fila, index) => {
+        const etiqueta = String(fila[0]).trim();
+        if (etiqueta) { 
+          formMap[etiqueta] = { valor: fila[1], celda: rangoForm.getCell(index, 1) }; 
         }
+      });
 
-        // 2. Anti-Vacío (Anti-Borrado)
-        const checkDescripcion = hojaInput.getRange(mapaCeldas["Descripción"]).getText();
-        if (checkDescripcion === "") {
-            throw new Error("⛔ PELIGRO:\nEl formulario parece estar vacío. Ejecute 'BUSCAR DESVÍO' antes de intentar actualizar.");
-        }
+      const idBuscado = wsInput.getRange("C2").getValue() as number;
+      const motivoVal = formMap["MOTIVO"] ? String(formMap["MOTIVO"].valor).trim() : "";
+      const usuarioVal = formMap["USUARIO"] ? String(formMap["USUARIO"].valor).trim() : "";
 
-        // Nota: NO validamos el motivo todavía. Primero vemos si vale la pena.
+      const tablaBD = wsBD.getTable(TABLE_BD);
+      const dataBD = tablaBD.getRangeBetweenHeaderAndTotal().getValues();
+      const headersBD = tablaBD.getHeaderRowRange().getValues()[0] as string[];
 
-        // --- BLOQUE 3: COMPARACIÓN (DELTA LOGGING) ---
+      let rowIndex = -1;
+      for (let i = 0; i < dataBD.length; i++) {
+        if (dataBD[i][headersBD.indexOf("ID")] == idBuscado) { rowIndex = i; }
+      }
 
-        const hojaBD = workbook.getWorksheet("BD_DESVIOS");
-        if (!hojaBD) throw new Error("Falta BD_DESVIOS.");
-        const tablaDesvios = hojaBD.getTable("TablaDesvios");
-        if (!tablaDesvios) throw new Error("Falta TablaDesvios.");
+      // 4. VALIDACIONES Y BANDERAS GMP
+      let msgError = "";
+      if (rowIndex === -1) {
+        msgError = "ID no encontrado en la base de datos.";
+      } else if (dataBD[rowIndex][headersBD.indexOf("ESTADO")] === "Cerrado") {
+        msgError = "Registro Cerrado. No se permiten modificaciones.";
+      } else if (usuarioVal === "") {
+        msgError = "Falta identificar el 'Usuario' para la firma del cambio (Atribución).";
+      } else {
+        // Temporalidad: fSuceso <= fRegistro <= fQA
+        const fS = formMap["FECHA SUCESO"]?.valor as number;
+        const fR = formMap["FECHA REGISTRO"]?.valor as number;
+        const fQ = formMap["FECHA QA"]?.valor as number;
+        if (fS && fR && fR < fS) msgError = "Fecha Registro no puede ser anterior a Fecha Suceso.";
+        else if (fR && fQ && fQ < fR) msgError = "Fecha QA no puede ser anterior a Fecha Registro.";
+      }
 
-        // Buscar Fila
-        const columnaID = tablaDesvios.getColumnByName("ID");
-        const valoresID = columnaID.getRangeBetweenHeaderAndTotal().getValues();
-        let indiceFila = -1;
-        for (let i = 0; i < valoresID.length; i++) {
-            if (valoresID[i][0] == idVisual) {
-                indiceFila = i;
-                break;
+      // 5. DETECCIÓN DE CAMBIOS
+      let cambios: string[] = [];
+      let nuevaFila = rowIndex !== -1 ? [...dataBD[rowIndex]] : [];
+      
+      if (msgError === "" && rowIndex !== -1) {
+        const columnasAComparar = headersBD.filter(h => !["ID", "ESTADO", "AUDIT TRAIL"].includes(h));
+        columnasAComparar.forEach(col => {
+          if (formMap[col]) {
+            const bdIdx = headersBD.indexOf(col);
+            const vViejo = dataBD[rowIndex][bdIdx];
+            const vNuevo = formMap[col].valor;
+
+            // Validación de integridad: No vaciar campos que ya tenían datos
+            if (vNuevo === "" && vViejo !== "" && col != "FECHA QA") { msgError = `El campo [${col}] no puede quedar vacío.`; }
+            
+            if (String(vViejo) !== String(vNuevo)) {
+              cambios.push(`[${col}: ${formatearParaLog(vViejo, col)} -> ${formatearParaLog(vNuevo, col)}]`);
+              nuevaFila[bdIdx] = vNuevo;
             }
-        }
-        if (indiceFila === -1) throw new Error(`El Desvío #${idVisual} no existe en BD.`);
+          }
+        });
+      }
 
-        // Comparar
-        const rangoEncabezados = tablaDesvios.getHeaderRowRange();
-        const encabezados = rangoEncabezados.getValues()[0] as string[];
-        const filaVieja = tablaDesvios.getRangeBetweenHeaderAndTotal().getRow(indiceFila).getValues()[0];
+      // 6. EJECUCIÓN (COMMIT)
+      if (msgError !== "") {
+        reportarError(wsInput, RANGO_MENSAJES, "❌ " + msgError, UX);
+      } else if (cambios.length === 0) {
+        const msj = wsInput.getRange(RANGO_MENSAJES);
+        msj.setValue("ℹ️ Sin cambios detectados respecto a la BD.");
+        msj.getFormat().getFill().setColor("#E2E3E5");
+        msj.getFormat().getFont().setColor("#383D41");
+      } else if (motivoVal === "") {
+        reportarError(wsInput, RANGO_MENSAJES, "⚠️ Se requiere 'Motivo' para justificar el cambio.", UX);
+      } else {
+        wsBD.getProtection().unprotect(clave);
+        wsHistorial.getProtection().unprotect(clave);
 
-        let listaCambios: string[] = [];
-        let nuevaFilaValores: (string | number | boolean)[] = [];
-        let huboCambios = false;
-
-        for (let i = 0; i < encabezados.length; i++) {
-            let nombreCol = encabezados[i];
-            let valorViejo = filaVieja[i];
-            let valorNuevo = valorViejo;
-
-            if (mapaCeldas[nombreCol]) {
-                let valorInput = hojaInput.getRange(mapaCeldas[nombreCol]).getValue();
-                if (valorInput.toString() != valorViejo.toString()) {
-                    listaCambios.push(`[${nombreCol}: ${valorViejo} -> ${valorInput}]`);
-                    valorNuevo = valorInput;
-                    huboCambios = true;
-                } else {
-                    valorNuevo = valorInput;
-                }
-            }
-            if (nombreCol === "Audit Trail" && huboCambios) valorNuevo = new Date().toLocaleString();
-            nuevaFilaValores.push(valorNuevo);
-        }
-
-        // --- BLOQUE DE DECISIÓN: ¿HUBO CAMBIOS? ---
-
-        if (!huboCambios) {
-            // CASO A: NO CAMBIÓ NADA
-            // Avisamos amablemente y terminamos. No pedimos motivo.
-            celdaMensaje.setValue("ℹ️ SIN CAMBIOS:\nLos datos en el formulario son idénticos a los de la base de datos. No se realizó ninguna acción.");
-            celdaMensaje.getFormat().getFill().setColor("#F2F2F2"); // Gris claro
-            celdaMensaje.getFormat().getFont().setColor("#595959"); // Gris oscuro
-
-        } else {
-            // CASO B: SÍ HUBO CAMBIOS
-            // Ahora sí, VALIDAMOS EL MOTIVO (Obligatorio GMP)
-            const motivoCambio = hojaInput.getRange(celdaMotivo).getText();
-
-            if (motivoCambio === "") {
-                throw new Error("⚠️ MOTIVO REQUERIDO:\nSe han detectado cambios en los datos.\nEs obligatorio indicar el 'Motivo del Cambio' para proceder.");
-            }
-
-            // --- BLOQUE 4: ESCRITURA BLINDADA ---
-            const hojaHistorial = workbook.getWorksheet("HISTORIAL_DESVIOS");
-            if (!hojaHistorial) throw new Error("Falta HISTORIAL_DESVIOS.");
-
-            // 🔓 Desproteger BDs
-            hojaBD.getProtection().unprotect(CLAVE_SEGURIDAD);
-            hojaHistorial.getProtection().unprotect(CLAVE_SEGURIDAD);
-
-            // 1. Update BD
-            tablaDesvios.getRangeBetweenHeaderAndTotal().getRow(indiceFila).setValues([nuevaFilaValores]);
-
-            // 2. Insert Historial
-            const tablaHistorial = hojaHistorial.getTable("TablaHistorial");
-            let idEvento = 1;
-            if (tablaHistorial.getRowCount() > 0) {
-                let idsH = tablaHistorial.getColumnByName("ID_EVENTO").getRangeBetweenHeaderAndTotal().getValues();
-                let maxH = Math.max(...idsH.map(f => Number(f[0])));
-                idEvento = maxH + 1;
-            }
-
-            let filaHistorial = [
-                idEvento, idVisual, new Date().toLocaleString(),
-                hojaInput.getRange(mapaCeldas["Usuario"]).getText(),
-                motivoCambio, listaCambios.join("; ")
-            ];
-            tablaHistorial.addRow(-1, filaHistorial);
-
-            // Formato
-            tablaDesvios.getRange().getFormat().autofitColumns();
-            tablaHistorial.getRange().getFormat().autofitColumns();
-
-            // 🔒 Reproteger BDs
-            const opts = { allowInsertRows: false, allowDeleteRows: false, allowFormatCells: false, allowAutoFilter: true, allowSort: true };
-            hojaBD.getProtection().protect(opts, CLAVE_SEGURIDAD);
-            hojaHistorial.getProtection().protect(opts, CLAVE_SEGURIDAD);
-
-            // Limpieza
-            hojaInput.getRange("C4:C30").clear(ExcelScript.ClearApplyTo.contents);
-            hojaInput.getRange(celdaIdBuscar).clear(ExcelScript.ClearApplyTo.contents);
-            hojaInput.getRange(celdaTestigo).clear(ExcelScript.ClearApplyTo.contents);
-
-            celdaMensaje.setValue(`✅ Actualización Exitosa.\nCambios guardados: ${listaCambios.length}`);
-            celdaMensaje.getFormat().getFill().setColor("#DFF6DD");
-            celdaMensaje.getFormat().getFont().setColor("#006600");
-            celdaMensaje.getFormat().getFont().setBold(true);
+        // A. Update Base de Datos
+        const rFila = tablaBD.getRangeBetweenHeaderAndTotal().getRow(rowIndex);
+        const idxAudit = headersBD.indexOf("AUDIT TRAIL");
+        if (idxAudit !== -1) nuevaFila[idxAudit] = new Date().toLocaleString('es-AR', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        rFila.setValues([nuevaFila]);
+        
+        // B. Insert Historial (Cálculo de ID_EVENTO)
+        const tHist = wsHistorial.getTable(TABLE_HISTORIAL);
+        const dataHist = tHist.getRangeBetweenHeaderAndTotal().getValues();
+        let proximoId = 1;
+        if (dataHist.length > 0) {
+            proximoId = Math.max(...dataHist.map(f => Number(f[0]))) + 1;
         }
 
-    } catch (error) {
-        console.log(error);
-        // Fail-safe reprotection
-        try { workbook.getWorksheet("BD_DESVIOS").getProtection().protect({ allowAutoFilter: true }, CLAVE_SEGURIDAD); } catch (e) { }
-        try { workbook.getWorksheet("HISTORIAL_DESVIOS").getProtection().protect({ allowAutoFilter: true }, CLAVE_SEGURIDAD); } catch (e) { }
+        const datosHist: { [key: string]: string | number | boolean } = {
+            "ID_EVENTO": proximoId,
+            "ID_DESVIO": idBuscado,
+            "FECHA_CAMBIO": new Date().toLocaleString('es-AR', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            "USUARIO": usuarioVal,
+            "MOTIVO": motivoVal,
+            "CAMBIOS": cambios.join(" | ")
+        };
 
-        celdaMensaje.setValue("⛔ ERROR:\n" + error.message);
-        celdaMensaje.getFormat().getFill().setColor("#FFDDDD");
-        celdaMensaje.getFormat().getFont().setColor("Red");
+        const headersHist = tHist.getHeaderRowRange().getValues()[0] as string[];
+        tHist.addRow(-1, headersHist.map(h => datosHist[h] ?? ""));
 
+        // C. Mensaje de Éxito (Consistente con Registrar/Buscar)
+        const msj = wsInput.getRange(RANGO_MENSAJES);
+        msj.setValue(`✅ Desvío ${idBuscado} actualizado y auditado correctamente.`);
+        msj.getFormat().getFill().setColor(UX.EXITO_BG);
+        msj.getFormat().getFont().setColor(UX.EXITO_TXT);
+        msj.getFormat().getFont().setBold(true);
+        msj.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+        msj.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+        msj.select();
+
+        // Limpieza dinámica del motivo
+        if (formMap["MOTIVO"]) formMap["MOTIVO"].celda.clear(ExcelScript.ClearApplyTo.contents);
+      }
+
+    } catch (e) {
+      reportarError(wsInput, RANGO_MENSAJES, "❌ Error técnico de ejecución.", UX);
+      console.log(e);
     } finally {
-        // CIERRE FINAL: Reproteger Input
-        try {
-            hojaInput.getProtection().protect({
-                allowSelectLockedCells: true, allowSelectUnlockedCells: true, allowAutoFilter: false
-            }, CLAVE_SEGURIDAD);
-        } catch (e) { }
+      // 7. BLINDAJE FINAL
+      if (clave !== "") {
+        [wsInput, wsBD, wsHistorial].forEach(ws => {
+          try { ws.getProtection().protect(undefined, clave); } catch (err) {}
+        });
+      }
     }
+  }
 }

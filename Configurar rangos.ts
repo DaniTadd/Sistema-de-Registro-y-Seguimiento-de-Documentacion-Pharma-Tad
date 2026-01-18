@@ -1,76 +1,46 @@
 function main(workbook: ExcelScript.Workbook) {
-  // 1. CONFIGURACIÓN (Contexto V5)
+  // 1. CONSTANTES
   const SHEET_INPUT = "INPUT_DESVIOS";
-  const SHEET_MAESTROS = "MAESTROS";
-  const CELL_CLAVE = "XFD1";
+  const SHEET_CONFIG = "MAESTROS";
+  const CELL_CLAVE = "XFD1"; 
+  const RANGO_INPUTS = "C1:C30"; // Estado + Formulario
 
-  const wsInput = workbook.getWorksheet(SHEET_INPUT)!;
-  const wsMaestros = workbook.getWorksheet(SHEET_MAESTROS)!;
+  const wsInput = workbook.getWorksheet(SHEET_INPUT);
+  if (!wsInput) throw new Error(`⛔ No se encontró la hoja ${SHEET_INPUT}`);
 
-  if (!wsInput) {
-    console.log("Error: No se encuentra la hoja INPUT_DESVIOS");
-    return;
-  }
-
-  // 2. OBTENER CLAVE Y DESPROTEGER (Para poder cambiar formatos)
-  let clave = "";
-  try {
-    if (wsMaestros) {
-      clave = wsMaestros.getRange(CELL_CLAVE).getValue() as string;
-    }
-    // Usamos la API corregida
-    wsInput.getProtection().unprotect(clave);
-    console.log("Hoja desprotegida temporalmente para configuración.");
-  } catch (e) {
-    console.log("La hoja ya estaba desprotegida o hubo un error de clave.");
-  }
-
-  // 3. DEFINIR TODOS LOS RANGOS DE INTERACCIÓN (V5)
-  // Incluye Inputs Principales, Motivo y los nuevos módulos de la derecha
-  const rangosInteractivos = [
-    // A) Cabecera y Buscador
-    "C2",           // ID Principal (Buscador)
-    
-    // B) Fechas
-    "C6:C8",        // Suceso, Registro, QA
-    
-    // C) Selectores
-    "C10", "C12",   // Planta, Tercerista
-    
-    // D) Textos Largos y Detalles
-    "C14",          // Descripción
-    "C16", "C18",   // Etapas
-    "C20", "C22",   // Clasificación, Impacto
-    "C24", "C26",   // Observaciones, Autor
-    "C28",          // MOTIVO (Crítico para Actualizar)
-
-    // E) NUEVO: Módulo Afectaciones (Lotes) - Columna F Arriba
-    "F6:F12",       // Tipo, Orden, Material, Lote, Cantidad, Unidad, Disposición
-
-    // F) NUEVO: Módulo Tareas (Acciones) - Columna F Abajo
-    "F16:F18"       // Tarea, Responsable, Fecha Límite
-  ];
-
-  // 4. APLICAR DESBLOQUEO (Locked = false)
-  // Primero, por seguridad, bloqueamos TODA la hoja (reset)
-  wsInput.getRange().getFormat().getProtection().setLocked(true);
+  // 2. OBTENER CLAVE (MODO ESTRICTO)
+  const wsMaestros = workbook.getWorksheet(SHEET_CONFIG);
   
-  // Luego desbloqueamos solo lo necesario
-  rangosInteractivos.forEach(direccion => {
-    // Obtenemos el rango y cambiamos su propiedad de protección
-    wsInput.getRange(direccion).getFormat().getProtection().setLocked(false);
-    console.log(`Rango ${direccion} desbloqueado.`);
-  });
+  // Validación 1: ¿Existe la hoja de configuración?
+  if (!wsMaestros) {
+    throw new Error(`⛔ ERROR CRÍTICO DE SEGURIDAD: Falta la hoja '${SHEET_CONFIG}'. No se puede configurar el sistema.`);
+  }
 
-  // 5. REPROTECCIÓN FINAL (Modo Usuario)
-  // Dejamos la hoja protegida, pero permitiendo seleccionar celdas desbloqueadas
-  wsInput.getProtection().protect({
-    allowSelectLockedCells: true,   // Permitir clic en celdas bloqueadas (útil para copiar)
-    allowSelectUnlockedCells: true, // Permitir escribir en las desbloqueadas
-    allowFormatCells: false,        // No dejar cambiar colores
-    allowDeleteRows: false,
-    allowInsertRows: false
-  }, clave);
+  // Validación 2: ¿Hay clave configurada?
+  // Usamos .getText() para leerla tal cual es
+  const clave = wsMaestros.getRange(CELL_CLAVE).getText();
 
-  console.log("✅ Configuración completada: INPUT_DESVIOS lista para el usuario.");
+  if (!clave || clave === "") {
+     throw new Error("⛔ ERROR CRÍTICO: La celda de contraseña (XFD1) está vacía en MAESTROS.");
+  }
+
+  // 3. APLICAR CONFIGURACIÓN
+  // A) Intentar desproteger (con la clave REAL)
+  try {
+    wsInput.getProtection().unprotect(String(clave));
+  } catch (e) {
+    console.log("Aviso: La hoja ya estaba desprotegida o la clave cambió.");
+  }
+
+  // B) Bloquear TODO (Reset)
+  wsInput.getRange().getFormat().getProtection().setLocked(true);
+
+  // C) Desbloquear SOLO los inputs (C3 a C28)
+  const inputs = wsInput.getRange(RANGO_INPUTS);
+  inputs.getFormat().getProtection().setLocked(false);
+  
+  // D) Proteger la hoja (Sin opciones extra, usando la clave REAL)
+  wsInput.getProtection().protect(undefined, String(clave));
+
+  console.log(`✅ SEGURIDAD APLICADA. Inputs desbloqueados en: ${RANGO_INPUTS}`);
 }

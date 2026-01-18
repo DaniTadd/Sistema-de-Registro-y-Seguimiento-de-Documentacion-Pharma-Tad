@@ -11,20 +11,20 @@ function main(workbook: ExcelScript.Workbook) {
 
   // 1. C) Mapa de Mapeo: "Nombre Columna en BD" => "Celda en INPUT"
   const MAPA_LECTURA: { [key: string]: string } = {
-    "Fecha Suceso": "C6",
-    "Estado": "C3",
-    "Fecha Registro": "C7",
-    "Fecha QA": "C8",
-    "Planta": "C10",
-    "Tercerista": "C12",
-    "Descripción": "C14",
-    "Etapa Ocurrencia": "C16",
-    "Etapa Detección": "C18",
-    "Clasificación": "C20",
-    "Impacto": "C22",
-    "Observaciones": "C24",
-    "Usuario": "C26",
-    "Motivo": "C28"
+    "FECHA SUCESO": "C6",
+    "ESTADO": "C3",
+    "FECHA REGISTRO": "C7",
+    "FECHA QA": "C8",
+    "PLANTA": "C10",
+    "TERCERISTA": "C12",
+    "DESCRIPCIÓN": "C14",
+    "ETAPA OCURRENCIA": "C16",
+    "ETAPA DETECCIÓN": "C18",
+    "CLASIFICACIÓN": "C20",
+    "IMPACTO": "C22",
+    "OBSERVACIONES": "C24",
+    "USUARIO": "C26",
+    "MOTIVO": "C28"
   };
   // 1. D) Celda input y limpieza
   const INPUT_ID = "C2"; 
@@ -116,7 +116,7 @@ function main(workbook: ExcelScript.Workbook) {
         // 4. D) i) Volcado de datos dinámico
         for (const [columnaBD, celdaInput] of Object.entries(MAPA_LECTURA)) {
             const idx = encabezados.indexOf(columnaBD);
-            if (idx !== -1) {
+            if (idx !== -1 && columnaBD !== "USUARIO") {
                 const valor = filaEncontrada[idx];
                 wsInput.getRange(celdaInput).setValue(valor);
             }

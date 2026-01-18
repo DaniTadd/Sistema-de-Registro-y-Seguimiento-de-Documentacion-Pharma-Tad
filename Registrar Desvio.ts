@@ -34,13 +34,25 @@ function main(workbook: ExcelScript.Workbook) {
 
   // 1. C) FUNCIÓN HELPER ENCAPSULADA
   // Al estar dentro de main, no choca con otros scripts
-  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string, colors: typeof UX ) {
-    const rango = ws.getRange(dir);
-    rango.setValue(texto);
-    rango.getFormat().getFill().setColor(UX.ERROR_BG);
-    rango.getFormat().getFont().setColor(UX.ERROR_TXT);
-    rango.getFormat().setWrapText(true);
-    rango.select()
+  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string, colors: typeof UX) {
+    try {
+        // Intentamos escribir en la hoja
+        const rango = ws.getRange(dir);
+        rango.setValue(texto);
+        rango.getFormat().getFill().setColor(UX.ERROR_BG);
+        rango.getFormat().getFont().setColor(UX.ERROR_TXT);
+        rango.getFormat().setWrapText(true);
+        rango.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+        rango.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+        rango.select(); 
+    } catch (writeError) {
+        // SI FALLA (porque la hoja está bloqueada y no tenemos clave):
+        // No podemos mostrarlo bonito en la celda.
+        // Lanzamos el error al sistema para que Excel muestre su popup lateral.
+        console.log("💥 ERROR TÉCNICO (DEBUG):");
+        console.log(writeError);
+        throw new Error("⛔ ERROR CRÍTICO DEL SISTEMA: " + texto);
+    }
   }
   // ------------------------------------------------------------
 
@@ -125,36 +137,44 @@ function main(workbook: ExcelScript.Workbook) {
           nuevoId = Math.max(...listaNumeros) + 1;
         }
         const idDesvio = nuevoId;                
-        // 5. B) PREPARAR DATOS
+        // 5. 
+        // B) PREPARAR DATOS (Normalizado para coincidir con encabezados BD)
         const datosDiccionario: { [key: string]: string | number | boolean } = {
           "ID": idDesvio,
-          "Estado": "Abierto",
-          "Fecha Suceso": fSuceso,
-          "Fecha Registro": fRegistro,
-          "Fecha QA": fQA,
-          "Planta": planta,
-          "Tercerista": tercerista,
-          "Descripción": descripcion,
-          "Etapa Ocurrencia": etapaO,
-          "Etapa Detección": etapaD,
-          "Clasificación": clasif,
-          "Impacto": impacto,
-          "Observaciones": obs,
-          "Usuario": autor,
-          "Audit Trail": new Date().toLocaleString()
+          "ESTADO": "Abierto",
+          "FECHA SUCESO": fSuceso,
+          "FECHA REGISTRO": fRegistro,
+          "FECHA QA": fQA,
+          "PLANTA": planta,
+          "TERCERISTA": tercerista,
+          "DESCRIPCIÓN": descripcion,
+          "ETAPA OCURRENCIA": etapaO,
+          "ETAPA DETECCIÓN": etapaD,
+          "CLASIFICACIÓN": clasif,
+          "IMPACTO": impacto,
+          "OBSERVACIONES": obs,
+          "USUARIO": autor,
+          "AUDIT TRAIL": new Date().toLocaleString('es-AR', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
         };
 
-        // 5. C) ESCRITURA         
-        // Lectura de los encabezados de la Fila 0
+        // C) ESCRITURA (Validación de mapeo)
         const rangoHeaders = tablaDesvios.getHeaderRowRange(); 
-        // Se obtienen los valores directos
         const encabezados = rangoHeaders.getValues()[0] as string[];
 
-        // Mapeo de los datos
-        const filaAInsertar = encabezados.map(col => datosDiccionario[col] ?? "");
+        // CAMBIO CLAVE: Si el mapeo falla, lanzamos error en lugar de insertar fila vacía
+        const filaAInsertar = encabezados.map(col => {
+            const valor = datosDiccionario[col];
+            if (valor === undefined && col !== "") {
+                console.log(`Error de Mapeo: La columna '${col}' no existe en el diccionario.`);
+            }
+            return valor ?? "";
+        });
+
+        if (filaAInsertar.filter(item => item !== "").length <= 1) {
+            throw new Error("Error de Integridad: Se intentó registrar una fila vacía. Verifique que los encabezados de la BD coincidan con el script.");
+        }
 
         tablaDesvios.addRow(-1, filaAInsertar);
-
         const rangoTabla = tablaDesvios.getRange();
           rangoTabla.getFormat().setWrapText(true);
           rangoTabla.getFormat().autofitColumns();
@@ -173,8 +193,20 @@ function main(workbook: ExcelScript.Workbook) {
         msj.select()
 
       } catch (error) {
-        reportarError(wsInput, RANGO_MENSAJES, "❌ ERROR CRÍTICO:\n" + error, UX);
-      } }
+          // 1. Limpieza del mensaje para evitar "[object Object]"
+          let errorTxt = "";
+          
+          if (typeof error === "string") {
+              errorTxt = error;
+          } else {
+              // Intentamos leer la propiedad .message. Si no existe, usamos JSON.stringify para ver qué tiene.
+              errorTxt = (error as Error).message || JSON.stringify(error);
+          }
+
+          // 2. Reportar (Esto intentará escribir en la hoja, y si falla, irá a la consola)
+          reportarError(wsInput, RANGO_MENSAJES, "❌ " + errorTxt, UX);
+          
+        } }
       } finally {
       // 6. SEGURIDAD: Re-proteger de forma defensiva
       // Se usa el "Pattern de Silencio": Si falla es porque ya estaba protegida.
