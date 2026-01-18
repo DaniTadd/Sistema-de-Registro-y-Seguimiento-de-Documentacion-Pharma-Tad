@@ -18,8 +18,6 @@ La elección de esta stack tecnológica se basa en tres pilares estratégicos:
 
 ---
 
----
-
 ## 🚀 Roadmap de Desarrollo (Evolución del Sistema)
 
 ### ✅ Versión 1.0: El Núcleo (Core) - *ESTABILIZADO*
@@ -35,8 +33,15 @@ La elección de esta stack tecnológica se basa en tres pilares estratégicos:
 * **Módulo RCA (Root Cause Analysis):** Tabla independiente de atributos (Equipo, Turno, Área, condiciones ambientales) vinculada por ID.
 * **Preparación para Power BI:** Este diseño relacional permite el consumo directo desde herramientas de Business Intelligence para la detección de patrones críticos, análisis de Pareto y visualización de tendencias de causa raíz.
 
-### 🔮 Versión 2.0: Seguridad Empresarial & Automatización (Futuro)
-* **Power Automate:** Migración de la firma manual a identidad de Azure AD y notificaciones automáticas.
+### 🔮 Versión 2.0: Seguridad & Automatización (QA Interno)
+* **Identidad de Usuario:** Captura de identidad de Azure AD mediante Power Automate para firmas digitales auténticas.
+
+### 📝 Versión 3.0: Ecosistema de Reporte en Planta (MS Forms)
+* **Captura Externa:** Apertura a otros sectores para reportes rápidos desde planta.
+* **Módulo de Triaje:** Revisión y validación de QA antes del ingreso formal a la base principal.
+
+### 📂 Versión 4.0: Gestión de Evidencias (Alta Complejidad)
+* **Módulo de Archivos:** Investigación de integración para la creación de carpetas automáticas y vinculación de sustento documental (Fotos/PDFs) a cada registro.
 
 ---
 
