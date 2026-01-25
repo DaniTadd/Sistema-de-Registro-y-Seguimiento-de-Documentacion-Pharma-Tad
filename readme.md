@@ -1,4 +1,4 @@
-# 🏭 Sistema de Gestión de Desvíos (GMP)
+# 🏭 Sistema de Registro y Seguimiento de Documentación (GMP)
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Tech](https://img.shields.io/badge/Office_Scripts-TypeScript-3178C6.svg)
