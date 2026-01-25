@@ -1,46 +1,100 @@
 function main(workbook: ExcelScript.Workbook) {
-  // 1. CONSTANTES
+  // ==========================================
+  // 1. CONSTANTES Y CONFIGURACIÓN
+  // ==========================================
   const SHEET_INPUT = "INPUT_DESVIOS";
   const SHEET_CONFIG = "MAESTROS";
-  const CELL_CLAVE = "XFD1"; 
-  const RANGO_INPUTS = "C1:C30"; // Estado + Formulario
+  const NOMBRE_RANGO_CLAVE = "SISTEMA_CLAVE"; 
 
   const wsInput = workbook.getWorksheet(SHEET_INPUT);
-  if (!wsInput) throw new Error(`⛔ No se encontró la hoja ${SHEET_INPUT}`);
-
-  // 2. OBTENER CLAVE (MODO ESTRICTO)
   const wsMaestros = workbook.getWorksheet(SHEET_CONFIG);
   
-  // Validación 1: ¿Existe la hoja de configuración?
-  if (!wsMaestros) {
-    throw new Error(`⛔ ERROR CRÍTICO DE SEGURIDAD: Falta la hoja '${SHEET_CONFIG}'. No se puede configurar el sistema.`);
+  let clave = "";
+  let mensajeLog = "";
+
+  // ==========================================
+  // 2. VALIDACIÓN DE ENTORNO
+  // ==========================================
+  if (!wsInput || !wsMaestros) {
+    mensajeLog = `⛔ Error: Faltan hojas críticas (${SHEET_INPUT} o ${SHEET_CONFIG}).`;
+  } else {
+    const rangoClave = workbook.getNamedItem(NOMBRE_RANGO_CLAVE)?.getRange();
+    if (rangoClave) {
+        clave = rangoClave.getText();
+        if (clave === "") mensajeLog = "⚠️ Advertencia: La clave de sistema está vacía.";
+    } else {
+        mensajeLog = `⛔ Error: No se encontró la configuración '${NOMBRE_RANGO_CLAVE}'.`;
+    }
   }
-
-  // Validación 2: ¿Hay clave configurada?
-  // Usamos .getText() para leerla tal cual es
-  const clave = wsMaestros.getRange(CELL_CLAVE).getText();
-
-  if (!clave || clave === "") {
-     throw new Error("⛔ ERROR CRÍTICO: La celda de contraseña (XFD1) está vacía en MAESTROS.");
-  }
-
-  // 3. APLICAR CONFIGURACIÓN
-  // A) Intentar desproteger (con la clave REAL)
-  try {
-    wsInput.getProtection().unprotect(String(clave));
-  } catch (e) {
-    console.log("Aviso: La hoja ya estaba desprotegida o la clave cambió.");
-  }
-
-  // B) Bloquear TODO (Reset)
-  wsInput.getRange().getFormat().getProtection().setLocked(true);
-
-  // C) Desbloquear SOLO los inputs (C3 a C28)
-  const inputs = wsInput.getRange(RANGO_INPUTS);
-  inputs.getFormat().getProtection().setLocked(false);
   
-  // D) Proteger la hoja (Sin opciones extra, usando la clave REAL)
-  wsInput.getProtection().protect(undefined, String(clave));
+  // ==========================================
+  // 3. EJECUCIÓN PRINCIPAL
+  // ==========================================
+  if (wsInput && clave !== "") {
+    try {
+        // A) Reset de Seguridad
+        wsInput.getProtection().unprotect(clave);
+        wsInput.getRange().getFormat().getProtection().setLocked(true); 
 
-  console.log(`✅ SEGURIDAD APLICADA. Inputs desbloqueados en: ${RANGO_INPUTS}`);
+        // B) Lógica de Desbloqueo Selectivo
+        let total = procesarColumna("B", 2, 1); 
+        total += procesarColumna("E", 5, 4);    
+
+        mensajeLog = total > 0 
+            ? `✅ Configuración exitosa. ${total} campos habilitados.` 
+            : "⚠️ Proceso finalizado sin campos habilitados.";
+
+    } catch (e) {
+        mensajeLog = `❌ Error de Ejecución: ${(e as Error).message}`;
+    } finally {
+        // Cierre estandarizado
+        safeProtect(wsInput, "Input");
+    }
+  }
+
+  console.log(mensajeLog);
+
+  // ==========================================
+  // ZONA DE HELPERS (Al final)
+  // ==========================================
+
+  function procesarColumna(letraEtiqueta: string, colInputIdx: number, filasIgnorar: number): number {
+      
+      let count = 0;
+      // AGREGADO (!): wsInput! le dice al sistema "Te juro que existe".
+      const usedRange = wsInput!.getRange(`${letraEtiqueta}:${letraEtiqueta}`).getUsedRange();
+      
+      if (usedRange) {
+          const valores = usedRange.getValues();
+          const filaInicial = usedRange.getRowIndex();
+
+          valores.forEach((fila, i) => {
+              const etiqueta = String(fila[0]).trim();
+              const filaReal = filaInicial + i;
+
+              if (etiqueta !== "" && filaReal > filasIgnorar) { 
+                  // AGREGADO (!): Aquí también usamos wsInput!
+                  wsInput!.getRangeByIndexes(filaReal, colInputIdx, 1, 1)
+                         .getFormat().getProtection().setLocked(false);
+                  count++;
+              }
+          });
+      }
+      return count;
+  }
+
+  // Helper 2: Cierre Seguro Estandarizado
+  function safeProtect(ws: ExcelScript.Worksheet | undefined, name: string) {
+      if (ws) {
+          try {
+              ws.getProtection().protect({}, clave);
+          } catch (e) {
+              const errString = JSON.stringify(e);
+              if (!errString.includes("InvalidOperation")) {
+                  console.log(`ℹ️ Aviso Cierre (${name}): ${errString}`);
+              }
+          }
+      }
+  }
+
 }

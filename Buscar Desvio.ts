@@ -1,148 +1,180 @@
 function main(workbook: ExcelScript.Workbook) {
+  // ==========================================
   // 1. CONFIGURACIÓN Y CONSTANTES
-  // 1. A) Hojas
+  // ==========================================
   const SHEET_INPUT = "INPUT_DESVIOS";
   const SHEET_BD = "BD_DESVIOS";
   const SHEET_MAESTROS = "MAESTROS";
-
-  // 1. B) Rango de Mensajes UX
+  const TABLE_BD = "TablaDesvios";
   const RANGO_MENSAJES = "D1:F3";
-  const CELL_CLAVE = "XFD1";
+  const NOMBRE_RANGO_CLAVE = "SISTEMA_CLAVE";
 
-  // 1. C) Mapa de Mapeo: "Nombre Columna en BD" => "Celda en INPUT"
-  const MAPA_LECTURA: { [key: string]: string } = {
-    "FECHA SUCESO": "C6",
-    "ESTADO": "C3",
-    "FECHA REGISTRO": "C7",
-    "FECHA QA": "C8",
-    "PLANTA": "C10",
-    "TERCERISTA": "C12",
-    "DESCRIPCIÓN": "C14",
-    "ETAPA OCURRENCIA": "C16",
-    "ETAPA DETECCIÓN": "C18",
-    "CLASIFICACIÓN": "C20",
-    "IMPACTO": "C22",
-    "OBSERVACIONES": "C24",
-    "USUARIO": "C26",
-    "MOTIVO": "C28"
-  };
-  // 1. D) Celda input y limpieza
-  const INPUT_ID = "C2"; 
-  const RANGO_LIMPIEZA = "C3:C28"; 
-
-  // 1. E) Colores UX
   const UX = {
-    EXITO_BG: "#D4EDDA",
-    EXITO_TXT: "#155724",
-    ERROR_BG: "#F8D7DA",
-    ERROR_TXT: "#721C24"
+    EXITO_BG: "#D4EDDA", EXITO_TXT: "#155724",
+    ERROR_BG: "#F8D7DA", ERROR_TXT: "#721C24"
   };
 
-  // 1. F) FUNCIÓN HELPER ENCAPSULADA (Office scripts no tolera la importación desde otro script, esta función se podría modularizar e importar en otro caso)
-  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string, colors: typeof UX) {
-    const rango = ws.getRange(dir);
-    rango.setValue(texto);
-    rango.getFormat().getFill().setColor(UX.ERROR_BG);
-    rango.getFormat().getFont().setColor(UX.ERROR_TXT);
-    rango.getFormat().setWrapText(true);
-    rango.select();
-  }
-  // ---------------------------------------------------------------
+  let sePuedeBuscar = true;
+  let mensajeSalida = "Inicio de búsqueda.";
+  let clave = ""; // Accesible por helpers
 
-  const wsInput = workbook.getWorksheet(SHEET_INPUT)!;
-  const wsBD = workbook.getWorksheet(SHEET_BD)!;
-  const wsMaestros = workbook.getWorksheet(SHEET_MAESTROS)!;
+  const wsInput = workbook.getWorksheet(SHEET_INPUT);
+  const wsBD = workbook.getWorksheet(SHEET_BD);
+  const wsMaestros = workbook.getWorksheet(SHEET_MAESTROS);
 
-  // 2. LIMPIEZA VISUAL INICIAL
-  // 2. A) Se limpia la pantalla antes de empezar
-  try {
-    const msj = wsInput.getRange(RANGO_MENSAJES);
-    msj.clear(ExcelScript.ClearApplyTo.contents);
-    msj.getFormat().getFill().clear();
-    
-    // 2. B) Limpieza de los campos de datos (pero NO el ID en C2)
-    wsInput.getRange(RANGO_LIMPIEZA).clear(ExcelScript.ClearApplyTo.contents);
-  } catch (e) {}
-
-  // 3. VALIDACIÓN DEL INPUT
-  const idBuscado = wsInput.getRange(INPUT_ID).getValue();
-
-  if (!idBuscado) {
-    reportarError(wsInput, RANGO_MENSAJES, "⚠️ Por favor ingresa un ID numérico en la celda C2.", UX);
-    return;
-  }
-
-  // 4. BÚSQUEDA Y LECTURA
-  let clave = "";
-  
-  // Try Global para asegurar el Finally
-  try {
-    // 4. A)) Lectura Segura de Clave
-    if (wsMaestros) {
-      clave = wsMaestros.getRange(CELL_CLAVE).getText();
-    }
-
-    // 4. B) Unprotect Seguro
-    // Nota: Aunque para leer no es 100% obligatorio desproteger, se hace para evitar bloqueos de lectura en rangos específicos.
-    wsBD.getProtection().unprotect(String(clave));
-    wsInput.getProtection().unprotect(String(clave));
-
-    // 4. C) ESTRATEGIA DE BÚSQUEDA
-    const rangoUsado = wsBD.getUsedRange();
-    if (!rangoUsado) throw new Error("La Base de Datos está vacía.");
-
-    const valoresBD = rangoUsado.getValues(); 
-    if (valoresBD.length < 2) throw new Error("No hay datos en la BD (solo encabezados).");
-
-    // 4. C) i) Identificar headers
-    const encabezados = valoresBD[0] as string[];
-    const indexID = encabezados.indexOf("ID");
-
-    if (indexID === -1) throw new Error("No se encuentra la columna 'ID' en BD_DESVIOS.");
-
-    // 4. C) ii) Buscar la fila
-    let filaEncontrada: (string | number | boolean)[] | null = null;
-
-    let i = 1; // Empezamos en 1 para saltar headers
-    while (i < valoresBD.length && !filaEncontrada) {
-        if (valoresBD[i][indexID] == idBuscado) {
-            filaEncontrada = valoresBD[i];
-        }
-        i++;
-    }
-
-    // 4. D) RESULTADO
-    if (filaEncontrada) {
-        // 4. D) i) Volcado de datos dinámico
-        for (const [columnaBD, celdaInput] of Object.entries(MAPA_LECTURA)) {
-            const idx = encabezados.indexOf(columnaBD);
-            if (idx !== -1 && columnaBD !== "USUARIO") {
-                const valor = filaEncontrada[idx];
-                wsInput.getRange(celdaInput).setValue(valor);
-            }
-        }
-
-        // 4. D) ii) Mensaje Éxito
-        const msj = wsInput.getRange(RANGO_MENSAJES);
-        msj.setValue(`✅ Desvío #${idBuscado} cargado correctamente.`);
-        msj.getFormat().getFill().setColor(UX.EXITO_BG);
-        msj.getFormat().getFont().setColor(UX.EXITO_TXT);
-        msj.getFormat().getFont().setBold(true);
-        msj.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
-        msj.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
-        msj.select();
-
+  // ==========================================
+  // 2. VALIDACIÓN DE ENTORNO
+  // ==========================================
+  if (!wsInput || !wsBD || !wsMaestros) {
+    sePuedeBuscar = false;
+    mensajeSalida = "❌ Error Crítico: Faltan hojas del sistema.";
+  } else {
+    const rangoClave = workbook.getNamedItem(NOMBRE_RANGO_CLAVE)?.getRange();
+    if (rangoClave) {
+      clave = rangoClave.getText();
     } else {
-        // 4. D) iii) NO ENCONTRADO
-        reportarError(wsInput, RANGO_MENSAJES, `⛔ No se encontró el ID "${idBuscado}" en la base de datos.`, UX);
+      sePuedeBuscar = false;
+      mensajeSalida = "❌ Error Configuración: Falta Nombre Definido 'SISTEMA_CLAVE'.";
     }
-
-  } catch (error) {
-    let errorTxt = (error as Error).message || String(error);
-    reportarError(wsInput, RANGO_MENSAJES, "❌ ERROR BÚSQUEDA:\n" + errorTxt, UX);
-  } finally {
-    // 5. REPROTECT FINAL (Blindado)
-    try { if (wsBD) wsBD.getProtection().protect(undefined, String(clave)); } catch (e) {}
-    try { if (wsInput) wsInput.getProtection().protect(undefined, String(clave)); } catch (e) {}
   }
+
+  // ==========================================
+  // 3. PROCESO DE BÚSQUEDA
+  // ==========================================
+  if (sePuedeBuscar) {
+    try {
+      // A. Preparación de UI
+      wsInput.getProtection().unprotect(clave);
+      const msj = wsInput.getRange(RANGO_MENSAJES);
+      msj.clear(ExcelScript.ClearApplyTo.contents);
+      msj.getFormat().getFill().clear();
+
+      // B. Lectura del Mapa (Input)
+      const usedRangeB = wsInput.getRange("B:B").getUsedRange();
+      
+      if (!usedRangeB) {
+        mensajeSalida = "⚠️ Formulario vacío (sin etiquetas en Columna B).";
+        reportarError(wsInput, RANGO_MENSAJES, mensajeSalida);
+      } else {
+        const labelsVal = usedRangeB.getValues();
+        const rowOffset = usedRangeB.getRowIndex();
+        
+        // Buscamos dónde está el ID y qué valor tiene
+        let idBuscado: string | number | boolean | undefined;
+        let filaID = -1;
+
+        // Mapa de coordenadas: { "ETIQUETA": IndiceFila }
+        const mapaCoordenadas: { [key: string]: number } = {};
+
+        labelsVal.forEach((row, i) => {
+          let etiqueta = String(row[0]).trim().toUpperCase();
+          if (etiqueta !== "") {
+            // Limpieza de asteriscos para búsqueda
+            if (etiqueta.endsWith("*")) etiqueta = etiqueta.replace("*", "").trim();
+            
+            mapaCoordenadas[etiqueta] = i + rowOffset;
+
+            if (etiqueta === "ID") {
+              filaID = i + rowOffset;
+              // Columna C corresponde al índice 2
+              idBuscado = wsInput.getRangeByIndexes(filaID, 2, 1, 1).getValue() as string | number | boolean; 
+            }
+          }
+        });
+
+        // C. Validación de Input ID
+        if (!idBuscado || idBuscado === "") {
+           mensajeSalida = "⚠️ Por favor ingresa un número de ID para buscar.";
+           reportarError(wsInput, RANGO_MENSAJES, mensajeSalida);
+        } else {
+           // D. Búsqueda en Base de Datos
+           // Nota: Para buscar, no necesitamos desproteger la BD, solo leerla.
+           const tablaBD = wsBD.getTable(TABLE_BD);
+           const headers = tablaBD.getHeaderRowRange().getValues()[0] as string[];
+           const dataBody = tablaBD.getRangeBetweenHeaderAndTotal().getValues();
+           
+           const indexColID = headers.indexOf("ID");
+           const filaEncontrada = dataBody.find((row) => row[indexColID] == idBuscado);
+
+           if (!filaEncontrada) {
+             mensajeSalida = `⚠️ No se encontró el Desvío #${idBuscado} en la base de datos.`;
+             reportarError(wsInput, RANGO_MENSAJES, mensajeSalida);
+           } else {
+             // E. Volcado de Datos (Mapping Inverso: BD -> Input)
+             
+             // 1. Limpiamos campos actuales (excepto ID)
+             for (let label in mapaCoordenadas) {
+               if (label !== "ID") {
+                 wsInput.getRangeByIndexes(mapaCoordenadas[label], 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
+               }
+             }
+
+             // 2. Llenamos con datos de BD
+             let camposCargados = 0;
+             headers.forEach((header, colIndex) => {
+               const h = header.toUpperCase();
+               if (mapaCoordenadas[h] !== undefined && h !== "ID") {
+                 const valorBD = filaEncontrada[colIndex];
+                 const targetRow = mapaCoordenadas[h];
+                 wsInput.getRangeByIndexes(targetRow, 2, 1, 1).setValue(valorBD);
+                 camposCargados++;
+               }
+             });
+
+             // F. Éxito
+             mensajeSalida = `✅ Desvío #${idBuscado} cargado (${camposCargados} campos).`;
+             msj.setValue(mensajeSalida);
+             msj.getFormat().getFill().setColor(UX.EXITO_BG);
+             msj.getFormat().getFont().setColor(UX.EXITO_TXT);
+             wsInput.getRange("A1").select();
+           }
+        }
+      }
+
+    } catch (e) {
+      mensajeSalida = `❌ Error Técnico: ${(e as Error).message}`;
+      reportarError(wsInput, RANGO_MENSAJES, mensajeSalida);
+    } finally {
+        // En Búsqueda no usamos Historial.
+        safeProtect(wsBD, "BD");
+        safeProtect(wsInput, "Input");
+    }
+  } else {
+    // Si falló la validación inicial
+    console.log(mensajeSalida);
+  }
+
+  // ==========================================
+  // ZONA DE HELPERS (Al final)
+  // ==========================================
+
+  function reportarError(ws: ExcelScript.Worksheet, dir: string, texto: string) {
+    try {
+      const rango = ws.getRange(dir);
+      rango.setValue(texto);
+      rango.getFormat().getFill().setColor(UX.ERROR_BG);
+      rango.getFormat().getFont().setColor(UX.ERROR_TXT);
+      rango.getFormat().setWrapText(true);
+      rango.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+      rango.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+      ws.getRange("A1").select();
+    } catch (e) {
+      console.log(`❌ Error UI: No se pudo escribir en pantalla. Msg: ${texto}`);
+    }
+  }
+
+  function safeProtect(ws: ExcelScript.Worksheet | undefined, name: string) {
+    if (ws) {
+      try {
+        // Intentamos proteger. Si falla con "InvalidOperation", es que ya estaba protegida.
+        ws.getProtection().protect({}, clave);
+      } catch (e) {
+        const errString = JSON.stringify(e);
+        if (!errString.includes("InvalidOperation")) {
+          console.log(`ℹ️ Aviso Cierre (${name}): ${errString}`);
+        }
+      }
+    }
+  }
+
 }

@@ -36,6 +36,13 @@ interface Range {
     getFormat(): RangeFormat;
     getLastRow(): Range;
     getRowIndex(): number;
+    getIntersection(anotherRange: Range | string): Range;
+    getResizedRange(deltaRows: number, deltaColumns: number): Range;
+    getRowCount(): number;
+    getColumnCount(): number;
+    getCell(row: number, column: number): Range;
+    getOffsetRange(rowOffset: number, columnOffset: number): Range;
+    getUsedRange(valuesOnly?: boolean): Range;
 }
 
 interface RangeFormat {
@@ -72,6 +79,7 @@ interface RangeFormat {
     interface TableColumn {
         getRangeBetweenHeaderAndTotal(): Range;
         getName(): string;
+        getIndex(): number;
     }
 
     interface Range {
