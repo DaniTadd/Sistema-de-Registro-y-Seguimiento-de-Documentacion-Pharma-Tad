@@ -1,100 +1,91 @@
-function main(workbook: ExcelScript.Workbook) {
-  // ==========================================
-  // 1. CONSTANTES Y CONFIGURACIÓN
-  // ==========================================
-  const SHEET_INPUT = "INPUT_DESVIOS";
-  const SHEET_CONFIG = "MAESTROS";
+function main(
+  workbook: ExcelScript.Workbook,
+  inputSheetName: string = "INP_DES", // Parametrizado
+  mastersSheetName: string = "MAESTROS" // Parametrizado
+) {
+  // --- CONFIGURACIÓN DE IDENTIDAD ---
+  const ENT = "desvío"; 
+  const ART = "el";
   const NOMBRE_RANGO_CLAVE = "SISTEMA_CLAVE"; 
 
-  const wsInput = workbook.getWorksheet(SHEET_INPUT);
-  const wsMaestros = workbook.getWorksheet(SHEET_CONFIG);
+  const wsInput = workbook.getWorksheet(inputSheetName);
+  const wsMaestros = workbook.getWorksheet(mastersSheetName);
   
   let clave = "";
   let mensajeLog = "";
 
-  // ==========================================
-  // 2. VALIDACIÓN DE ENTORNO
-  // ==========================================
+  // I. VALIDACIÓN DE ENTORNO
   if (!wsInput || !wsMaestros) {
-    mensajeLog = `⛔ Error: Faltan hojas críticas (${SHEET_INPUT} o ${SHEET_CONFIG}).`;
+    mensajeLog = `⛔ Error: Faltan hojas críticas (${inputSheetName} o ${mastersSheetName}).`;
   } else {
     const rangoClave = workbook.getNamedItem(NOMBRE_RANGO_CLAVE)?.getRange();
     if (rangoClave) {
-        clave = rangoClave.getText();
-        if (clave === "") mensajeLog = "⚠️ Advertencia: La clave de sistema está vacía.";
+      clave = rangoClave.getText();
+      if (clave === "") mensajeLog = "⚠️ Advertencia: La clave de sistema está vacía.";
     } else {
-        mensajeLog = `⛔ Error: No se encontró la configuración '${NOMBRE_RANGO_CLAVE}'.`;
+      mensajeLog = `⛔ Error: No se encontró el rango '${NOMBRE_RANGO_CLAVE}'.`;
     }
   }
   
-  // ==========================================
-  // 3. EJECUCIÓN PRINCIPAL
-  // ==========================================
+  // II. EJECUCIÓN PRINCIPAL
   if (wsInput && clave !== "") {
     try {
-        // A) Reset de Seguridad
-        wsInput.getProtection().unprotect(clave);
-        wsInput.getRange().getFormat().getProtection().setLocked(true); 
+      // A) Reset de Seguridad: Bloqueamos TODO primero
+      wsInput.getProtection().unprotect(clave);
+      wsInput.getRange().getFormat().getProtection().setLocked(true); 
 
-        // B) Lógica de Desbloqueo Selectivo
-        let total = procesarColumna("B", 2, 1); 
-        total += procesarColumna("E", 5, 4);    
+      // B) Lógica de Desbloqueo Selectivo
+      // procesarColumna(LetraEtiqueta, IndiceColumnaInput, FilasAIgnorar)
+      let total = procesarColumna("B", 2, 1); // Desbloquea columna C
+      total += procesarColumna("E", 5, 4);    // Desbloquea columna F (si hubiera)
 
-        mensajeLog = total > 0 
-            ? `✅ Configuración exitosa. ${total} campos habilitados.` 
-            : "⚠️ Proceso finalizado sin campos habilitados.";
+      mensajeLog = total > 0 
+        ? `✅ Configuración de ${ENT} exitosa. ${total} campos habilitados para entrada.` 
+        : `⚠️ Proceso finalizado sin campos habilitados en ${inputSheetName}.`;
 
     } catch (e) {
-        mensajeLog = `❌ Error de Ejecución: ${(e as Error).message}`;
+      mensajeLog = `❌ Error de Ejecución en ${ENT}: ${(e as Error).message}`;
     } finally {
-        // Cierre estandarizado
-        safeProtect(wsInput, "Input");
+      // Cierre estandarizado alineado con el resto del sistema
+      safeProtect(wsInput, `Input ${ENT.charAt(0).toUpperCase() + ENT.slice(1)}`);
     }
   }
 
   console.log(mensajeLog);
 
-  // ==========================================
-  // ZONA DE HELPERS (Al final)
-  // ==========================================
+  // --- HELPERS INTERNOS ---
 
   function procesarColumna(letraEtiqueta: string, colInputIdx: number, filasIgnorar: number): number {
-      
-      let count = 0;
-      // AGREGADO (!): wsInput! le dice al sistema "Te juro que existe".
-      const usedRange = wsInput!.getRange(`${letraEtiqueta}:${letraEtiqueta}`).getUsedRange();
-      
-      if (usedRange) {
-          const valores = usedRange.getValues();
-          const filaInicial = usedRange.getRowIndex();
+    let count = 0;
+    const usedRange = wsInput!.getRange(`${letraEtiqueta}:${letraEtiqueta}`).getUsedRange();
+    
+    if (usedRange) {
+      const valores = usedRange.getValues();
+      const filaInicial = usedRange.getRowIndex();
 
-          valores.forEach((fila, i) => {
-              const etiqueta = String(fila[0]).trim();
-              const filaReal = filaInicial + i;
+      valores.forEach((fila, i) => {
+        const etiqueta = String(fila[0]).trim();
+        const filaReal = filaInicial + i;
 
-              if (etiqueta !== "" && filaReal > filasIgnorar) { 
-                  // AGREGADO (!): Aquí también usamos wsInput!
-                  wsInput!.getRangeByIndexes(filaReal, colInputIdx, 1, 1)
-                         .getFormat().getProtection().setLocked(false);
-                  count++;
-              }
-          });
-      }
-      return count;
+        // Si la etiqueta no está vacía y no es una fila de encabezado a ignorar
+        if (etiqueta !== "" && filaReal > filasIgnorar) { 
+          wsInput!.getRangeByIndexes(filaReal, colInputIdx, 1, 1)
+                   .getFormat().getProtection().setLocked(false);
+          count++;
+        }
+      });
+    }
+    return count;
   }
 
-  // Helper 2: Cierre Seguro Estandarizado
   function safeProtect(ws: ExcelScript.Worksheet | undefined, name: string) {
-      if (ws) {
-          try {
-              ws.getProtection().protect({}, clave);
-          } catch (e) {
-              const errString = JSON.stringify(e);
-              if (!errString.includes("InvalidOperation")) {
-                  console.log(`ℹ️ Aviso Cierre (${name}): ${errString}`);
-              }
-          }
+    if (ws) {
+      try {
+        // Alineado con el resto de los scripts: permitimos Autofiltros
+        ws.getProtection().protect({ allowAutoFilter: true }, clave);
+      } catch (e) {
+        console.log(`ℹ️ Aviso Cierre (${name}): Hoja ya protegida o error menor.`);
       }
+    }
   }
-
 }

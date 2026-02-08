@@ -1,106 +1,103 @@
-# Manual de Lógica, Configuración y Memoria Técnica: Motor de Registro y Seguimiento de Documentación
+# 📚 Manual de Lógica y Memoria Técnica: Sistema Universal de Gestión (SGC)
 
-**Versión:** 1.0
-**Tecnología:** TypeScript (Office Scripts)
-**Estándar:** GMP / ALCOA+
-**Propósito:** Motor agnóstico para gestionar flujos de documentación de calidad (Desvíos, Reclamos, CC) mediante configuración en Excel, asegurando integridad transaccional.
+**Versión:** 1.0  
+**Tecnología:** Office Scripts (TypeScript)  
+**Estándar:** GMP / ALCOA+ (Integridad de Datos)  
+**Arquitectura:** Motor Agnóstico de Alto Desempeño (SESE)
 
 ---
 
 ## 1. Filosofía del Sistema (Arquitectura)
 
-El sistema se basa en cuatro pilares que garantizan flexibilidad, robustez y mantenibilidad:
+El sistema se basa en cuatro pilares que garantizan flexibilidad y cumplimiento normativo:
 
 ### A. Mapeo Dinámico (Abstracción)
-El código no contiene referencias fijas a celdas de datos (ej. C5, F8).
-* **Funcionamiento:** El script lee las etiquetas de la Columna B (o E), identifica qué dato se pide y busca su coincidencia exacta en los encabezados de la Base de Datos.
-* **Ventaja:** Permite agregar filas, mover campos o replicar el sistema sin tocar el código.
+El código no contiene referencias fijas a celdas (ej. "C5"). 
+* **Lógica:** El script lee las etiquetas de la Columna B (o E), normaliza el texto (MAYÚSCULAS y `GUION_BAJO`) y busca la coincidencia exacta en los encabezados de la Base de Datos.
+* **Normalización:** Los asteriscos (`*`) se utilizan para identificar campos **Obligatorios** en la UI, pero se remueven durante el mapeo para encontrar la columna correspondiente.
 
-### B. Estructura SESE (Single Entry, Single Exit) & SafeProtect
-Para garantizar la seguridad de los datos, el flujo de ejecución es lineal y el cierre es a prueba de fallos.
-* **Patrón "Check-Before-Act" (Éxito Silencioso):** Al finalizar cualquier script (en el bloque `finally`), el sistema invoca una función interna `safeProtect`.
-* **Lógica:** Intenta proteger la hoja. Si recibe un error `InvalidOperation` (significa que *ya estaba protegida*), lo ignora deliberadamente. Esto evita falsos positivos de error y asegura que la hoja termine siempre bloqueada, sin importar el estado inicial.
+### B Estructura SESE & Lógica de Cierre Seguro
+Para garantizar la integridad, el flujo de ejecución es lineal y el cierre es a prueba de fallos mediante el bloque `finally`:
+
+* **Patrón "Check-Before-Act" (Éxito Silencioso):** Al finalizar cualquier script, el sistema intenta reaplicar la protección. Si la hoja ya está protegida o el comando falla, el script captura el error (`catch`) para evitar un "crash" del sistema.
+* **Transaccionalidad:** El éxito de la operación principal (ej. registrar) no depende del éxito de la protección final. El aviso `[⚠️ Seguridad]` se adjunta al registro interno del script (consola) para diagnóstico técnico sin interrumpir la experiencia del usuario.
 
 ### C. Seguridad por "Puente" (Bridge)
-El código es público y no contiene credenciales hardcodeadas. Utiliza un **Nombre Definido** (`SISTEMA_CLAVE`) en Excel que apunta a la celda real de la contraseña, desacoplando el código de la configuración de seguridad.
+El sistema utiliza un **Nombre Definido** (`SISTEMA_CLAVE`) que apunta a la celda que contiene la contraseña. Esto permite:
+1. Desacoplar la seguridad del código (no hay contraseñas hardcodeadas).
+2. Actualizar la clave global desde un solo punto sin editar los scripts.
 
-### D. Arquitectura "Clean Code" (Estándar de Desarrollo)
-Todos los scripts siguen una estructura periodística estricta para facilitar la auditoría y evitar errores de duplicidad en el entorno de Excel Online:
-1.  **Configuración:** Constantes y lecturas iniciales al tope del archivo.
-2.  **Lógica de Negocio:** Validaciones y transacciones en el cuerpo central.
-3.  **Helpers Encapsulados:** Las funciones auxiliares (`reportarError`, `safeProtect`) se definen **dentro** de la función `main`, al final del archivo. Esto permite que compartan el *scope* (acceso a variables como `clave` o `UX`) sin necesidad de pasarlos como argumentos repetidamente.
+### D. Arquitectura "Clean Code"
+Los scripts están diseñados para ser autocontenidos debido a que Office Scripts no permite llamadas externas:
+1. **Configuración de Identidad:** Variables `ENT` (entidad), `ART` (artículo) y `GEN` (género) al inicio para personalizar mensajes.
+2. **Helpers Encapsulados:** Funciones como `protect`, `updateUI` y `parseDateToNum` se definen dentro de `main` para compartir el *scope* de variables críticas.
 
+### E Gestión de Errores y Excepciones
+El sistema categoriza los fallos según su impacto en la integridad y la necesidad de intervención:
+
+1.  **Errores de Sistema (Excepciones):** Se gestionan mediante `throw`. Son fallos críticos (ej. tablas faltantes o falta de clave) que detienen la ejecución inmediatamente para proteger la base de datos.
+2.  **Errores de Negocio (Validaciones):** No detienen el script. Se informan al usuario en la **celda de feedback** (ej. "Falta Fecha") para que pueda corregirlos sin que el motor de ejecución "explote".
+3.  **Advertencias de Mantenimiento (Silenciosas):** Se registran únicamente en la **consola de desarrollador**. Incluyen conflictos de protección de hoja que no afectan el éxito de la transacción principal.
 ---
 
-## 2. Estructura de Datos Híbrida (Compliance)
+#### 🛠️ Jerarquía de Visibilidad
+Esta distinción asegura que el usuario solo vea lo que puede corregir, mientras que los detalles técnicos quedan para auditoría:
 
-El sistema distingue entre datos flexibles del usuario y metadatos rígidos de auditoría.
+| Síntoma | Canal de Aviso | Gravedad | Explicación |
+| :--- | :--- | :---: | :--- |
+| **Cartel Rojo de Excel** | UI de Office Scripts | ⛔ Crítico | Fallo estructural (el código no pudo ni empezar). |
+| **Mensaje Gris/Naranja** | Celda de Feedback | ⚠️ Advertencia | Error del usuario (faltan datos o reglas de negocio). |
+| **Log en Consola** | Panel de Editor | ℹ️ Info | Aviso técnico (SafeProtect, tiempos de ejecución). |
+---
 
-### 2.1 Datos de Negocio (Dinámicos)
-Cualquier campo definido en el Input (ej. "Lote", "Máquina").
-* **Comportamiento:** Si la etiqueta existe en BD, se guarda. Si se borra del Input, el sistema rellena con **"N/A"** (No Aplica) en lugar de dejar vacíos.
+## 2. Estructura de Datos (Compliance ALCOA+)
 
-### 2.2 Metadatos de Auditoría (Estáticos)
-Columnas obligatorias para cumplir con ALCOA+. Sus nombres son fijos en el código.
+El sistema distingue entre datos de negocio (flexibles) y metadatos de auditoría (rígidos).
+
+### 2.1 Metadatos de Auditoría (Estáticos)
+Columnas obligatorias cuyos nombres están fijos en la lógica del motor:
 
 | Campo | Función | Comportamiento |
 | :--- | :--- | :--- |
-| **ID** | Identificador único | Autonumérico gestionado por el sistema. |
-| **ESTADO** | Ciclo de vida | Controlado por scripts (Abierto/Cerrado/Anulado). |
-| **AUDIT TRAIL** | Timestamp | Fecha/Hora inmutable de creación/modificación. |
-| **USUARIO** | Firma | Obligatorio para cualquier cambio de estado o edición. |
-| **MOTIVO** | Justificación | Obligatorio para auditoría de cambios. |
-| **CAMBIOS** | Log de diferencias | Generado automáticamente: `[Campo: Valor A -> Valor B]`. |
+| **ID** | Identificador único | Prefijo dinámico (ej: `D-`) + Máximo correlativo + 1. |
+| **ESTADO** | Ciclo de vida | Controlado por scripts (ABIERTO / CERRADO / ANULADO). |
+| **AUDIT_TRAIL** | Timestamp | Fecha/Hora inmutable de la operación (Huso Horario ART). |
+| **USUARIO** | Firma Digital | Email del usuario que ejecutó la acción. |
+| **MOTIVO** | Justificación | Obligatorio para cualquier modificación o anulación. |
+| **CAMBIOS** | Log de diferencias | Generado en Actualizar: `[Campo: Valor A -> Valor B]`. |
+
+### 2.2 Protección de Fórmulas y "N/A"
+* **Registrar:** Si una columna de la tabla no está en el formulario, el script envía un valor `null`. Esto permite que Excel dispare el **autorrelleno automático de fórmulas**.
+* **Actualizar:** Utiliza un **"Commit Quirúrgico"**; solo se sobrescriben las celdas que el usuario modificó en el formulario, protegiendo las fórmulas existentes en otras columnas de la fila.
+* **Campos Opcionales:** Si un campo sin asterisco se deja vacío, el sistema guarda **"N/A"** para evitar celdas nulas involuntarias.
 
 ---
 
-## 3. Lógica de Flujos Específicos
+## 3. Motor de Reglas y Validación
 
-### 3.1 Actualización de Desvíos ("Cajero Amable")
-El script de actualización prioriza la validación de datos sobre la burocracia de la firma.
-1.  **Validación de Datos:** Primero verifica que todos los campos del formulario cumplan con las reglas (obligatorios, tipos de datos, lógica de negocio).
-2.  **Detección de Cambios:** Verifica si el usuario realmente modificó algún dato respecto a la BD.
-3.  **Solicitud de Firma:** Solo si los datos son válidos Y existen cambios reales, el sistema exige completar **Usuario** y **Motivo**.
-    * *Ventaja:* Evita frustrar al usuario pidiendo firma cuando el formulario aún tiene errores de carga.
+La validación lógica se controla desde la `TablaReglas` en la hoja `MAESTROS`.
 
-### 3.2 Anulación (Acción Destructiva)
-La anulación es lógica, no física. El registro permanece en la BD pero su estado cambia a "ANULADO". Esta acción es irreversible mediante los scripts estándar y requiere firma obligatoria.
+* **Lógica de Validación:** El sistema utiliza un objeto puente (`valFuente`) para unificar los datos del formulario y validarlos contra las reglas antes de escribir en la BD.
+* **Operadores Soportados:** * `<` / `>` / `<=` / `>=`: Comparaciones lógicas (principalmente fechas).
+    * `EXISTE_EN`: Verifica que el dato ingresado exista en una tabla maestra externa (ej: `TablaProductos[Codigo]`).
 
 ---
 
-## 4. Configuración del Formulario (Hoja INPUT)
+## 4. Gestión de Filtros e Interfaz
 
-**Requisito:** Para realizar configuraciones estructurales, el usuario debe contar con la clave de desbloqueo.
-
-### 4.1 Crear nuevos campos
-Para agregar un dato nuevo al formulario:
-1.  Desproteja la hoja.
-2.  Escriba el nombre del nuevo campo en la **Columna B** (ej. "TIPO DE FALLA").
-3.  Asegúrese de que exista una columna con **exactamente el mismo nombre** en la tabla de la hoja de base de datos (`BD_DESVIOS`).
-4.  Ejecute el script **"Configurar Rangos"** para desbloquear la nueva celda.
-
-### 4.2 Campos Obligatorios y Normalización
-El sistema maneja la integridad de los datos según la configuración de la etiqueta:
-* **Obligatorio (`*`):** Agregue un asterisco al final de la etiqueta (ej. `LOTE*`).
-* **Opcional (Sin `*`):** Si se deja vacío, se guarda como "N/A".
+* **Limpieza Automática:** Los scripts de **Registrar** y **Buscar** limpian los filtros de la tabla al inicio. Esto garantiza que el nuevo registro o el registro buscado sean siempre visibles para el usuario.
+* **Tratamiento de Fechas:** Para evitar desfasajes por zona horaria, el script de **Buscar** recupera el valor serial de la fecha y fuerza el formato local `dd/mm/yyyy` en el formulario.
 
 ---
 
-## 5. Configuración de Reglas de Negocio (Hoja MAESTROS)
-
-La validación lógica se controla desde la `TablaReglas`.
-* **Lógica de Validación:** El sistema crea una "Fila Hipotética" (mezclando datos actuales de BD + nuevos datos del Input) y valida las reglas sobre ese resultado final antes de guardar.
-
----
-
-## 6. Matriz de Solución de Problemas
+## 5. Matriz de Solución de Problemas
 
 | Síntoma / Mensaje | Tipo | Causa Probable y Solución |
 | :--- | :---: | :--- |
-| **"Error Configuración..."** | ⛔ | **Falta Nombre Definido.** Verifique que exista `SISTEMA_CLAVE` en el Excel. |
-| **"AccessDenied"** | ⛔ | **Clave Incorrecta.** La contraseña en la celda apuntada no coincide con la de la hoja. |
-| **"Faltan columnas..."** | ⛔ | **Estructura Rota.** Se borró una columna crítica (`ID`, `ESTADO`). Restaúrela. |
-| **"Falta el argumento..."** | ⛔ | **Desincronización de Claves.** La hoja (BD o Input) tiene una contraseña diferente a la de `SISTEMA_CLAVE`, o está protegida sin contraseña. Unifique las claves manualmente. |
-| **"InvalidOperation"** (Consola) | ℹ️ | **Aviso de Seguridad.** El sistema intentó proteger una hoja que ya estaba protegida. Es un comportamiento esperado (SafeProtect) y no afecta al usuario. |
-| **Datos quedan como "N/A"** | ⚠️ | **Error de Mapeo.** Diferencia de escritura entre Input y BD (ej. espacios o tildes). |
-| **Mensaje Naranja** | ⚠️ | **Alerta de Negocio.** Faltan firmas (Usuario/Motivo) o acción destructiva. No es un error técnico. |
+| **"AccessDenied"** | ⛔ | **Clave Incorrecta.** La contraseña en `SISTEMA_CLAVE` no coincide con la de la hoja. |
+| **"Faltan columnas..."** | ⛔ | **Estructura Rota.** Se borró o renombró una columna crítica (`ID`, `ESTADO`). Restaure el encabezado exacto. |
+| **"ID Requerido"** | ⚠️ | **Falta ID.** El campo ID está vacío o tiene "N/A" en una operación de Actualizar/Anular. |
+| **"Fecha Inválida"** | ⛔ | **Formato Incorrecto.** Se ingresó un texto que no puede convertirse a fecha (`dd/mm/yyyy`). |
+| **Datos quedan como "N/A"** | ⚠️ | **Error de Mapeo.** Diferencia de escritura (espacios, tildes) entre la etiqueta del Input y el encabezado de la BD. |
+| **Fórmulas Borradas** | ⛔ | **Error de Configuración.** Se omitió la lógica de envío de `null` para columnas de cálculo en el script. |
+| **`[⚠️ Seguridad]`** | ℹ️ | **Aviso de Protección.** El script terminó con éxito pero no pudo reaplicar la protección (hoja ya bloqueada). |
