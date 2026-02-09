@@ -26,6 +26,7 @@ function main(
 
   let inputWS: ExcelScript.Worksheet | undefined,dbTab: ExcelScript.Table | undefined, histTab: ExcelScript.Table | undefined, mastersWS: ExcelScript.Worksheet | undefined, sysKey: ExcelScript.NamedItem | undefined;
   let pass: string = "";
+  let hRow: CellValue[] | undefined = undefined;
 
   try {
     // I. INFRAESTRUCTURA
@@ -116,7 +117,7 @@ function main(
             else if (op === "<=" || op === ">=") {
               const kB = vB_Raw.toUpperCase().replace(/\s/g, "_");
               // Buscamos vB en el formulario. Si no está, lo buscamos en la fila de la tabla (solo en Actualizar)
-              const vB = valFuente[kB] !== undefined ? valFuente[kB] : (typeof hRow !== 'undefined' ? hRow[headers.indexOf(kB)] : undefined);
+              const vB = valFuente[kB] !== undefined ? valFuente[kB] : (hRow ? hRow[headers.indexOf(kB)] : undefined);
 
               if (vA && vB && vA !== "N/A" && vB !== "N/A") {
                 const dA = parseDateToNum(vA), dB = parseDateToNum(vB);
@@ -171,7 +172,7 @@ function main(
 
           // B. GRABACIÓN EN HISTORIAL
           histTab.getWorksheet().getProtection().unprotect(pass);
-          const hRow = (histTab.getHeaderRowRange().getValues()[0] as string[]).map(h => {
+          hRow = (histTab.getHeaderRowRange().getValues()[0] as string[]).map(h => {
             const head = h.toUpperCase();
             if (head === "ID_EVENTO") {
               const col = histTab!.getColumnByName("ID_EVENTO").getRangeBetweenHeaderAndTotal();
