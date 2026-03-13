@@ -1,12 +1,25 @@
 function main(
   workbook: ExcelScript.Workbook,
-  targetTableName: string = "TablaDesvios",
-  inputSheetName: string = "INP_DES"
+  entidad: string,      // Viene de PA: "DESVIO" o "CAPA"
+  idDesdePanel: string, // El ID que el usuario escribe en el panel
+  userEmail: string     // Para auditoría si fuera necesario
 ) {
-  // --- CONFIGURACIÓN DE IDENTIDAD DEL MÓDULO ---
-  const ENT = "desvío";  // El nombre de la entidad en minúsculas
-  const ART = "el";      // "el" para masculino, "la" para femenino
-  const GEN = "o";       // "o" para masculino (cerrado), "a" para femenino (cerrada)
+  // --- MAPEADOR DE CONFIGURACIÓN (El Cerebro) ---
+  const entidadLimpia = String(entidad).replace(/[\[\]"]/g, "").toUpperCase().trim();
+  const MAPPING: { [key: string]: { tab: string, sheet: string, ent: string, art: string, gen: string } } = {
+    "DESVIO": { tab: "TablaDesvios", sheet: "INP_DES", ent: "desvío", art: "el", gen: "o" },
+    "CAPA": { tab: "TablaCapas", sheet: "INP_CAPAS", ent: "CAPA", art: "la", gen: "a" }
+  };
+
+  const config = MAPPING[entidadLimpia.toUpperCase()];
+  if (!config) throw new Error(`La entidad '${entidad}' no está configurada en el mapeador.`);
+
+  // --- CONFIGURACIÓN DE IDENTIDAD DINÁMICA ---
+  const ENT = config.ent;
+  const ART = config.art;
+  const GEN = config.gen;
+  const targetTableName = config.tab;
+  const inputSheetName = config.sheet;
 
   type CellValue = string | number | boolean;
   interface ActionResult { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
@@ -35,48 +48,44 @@ function main(
 
     pass = sysKey.getRange().getText();
     dbTab = workbook.getTable(targetTableName);
-    const filter = dbTab.getAutoFilter();
-    if (filter) {
-      filter.clearCriteria();
-    }
 
     if (!dbTab) throw new Error(`Error: La tabla '${targetTableName}' no existe.`);
 
-    // II. CAPTURA DEL ID A BUSCAR
+    const filter = dbTab.getAutoFilter();
+    if (filter) filter.clearCriteria();
+
+    // II. CAPTURA DEL ID A BUSCAR (Prioridad Panel)
     inputWS.getProtection().unprotect(pass);
-    const labelRange = inputWS.getRange("B:B").getUsedRange();
-    const headers = dbTab.getHeaderRowRange().getValues()[0].map(h => String(h).toUpperCase().replace(/\s/g, "_"));
-    const pkName = headers[0];
+    const searchId = idDesdePanel.trim().toUpperCase();
 
-    if (labelRange) {
-      const labels = labelRange.getValues() as CellValue[][];
-      const offset = labelRange.getRowIndex();
-      const coords: { [key: string]: number } = {};
-      let searchId: CellValue = "";
+    if (!searchId || searchId === "") {
+      actionResult.success = false;
+      actionResult.message = `Se necesita un ID de ${ENT} en el panel para continuar.`;
+      actionResult.logLevel = 'WARN';
+    } else {
+      
+      const labelRange = inputWS.getRange("B:B").getUsedRange();
+      const headers = dbTab.getHeaderRowRange().getValues()[0].map(h => String(h).toUpperCase().replace(/\s/g, "_"));
+      const pkName = headers[0];
 
-      // Mapeamos posiciones y capturamos el ID del formulario
-      labels.forEach((row, i) => {
-        const clean = String(row[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
-        if (clean !== "") {
-          coords[clean] = i + offset;
-          if (clean === pkName) {
-            searchId = inputWS!.getRangeByIndexes(i + offset, 2, 1, 1).getValue();
-          }
-        }
-      });
+      if (labelRange) {
+        const labels = labelRange.getValues() as CellValue[][];
+        const offset = labelRange.getRowIndex();
+        const coords: { [key: string]: number } = {};
 
-      if (!searchId || searchId === "N/A") {
-        actionResult.success = false;
-        actionResult.message = `Se necesita un ID de ${ENT} para continuar.`;
-        actionResult.logLevel = 'WARN';
-      } else {
+        // Mapeamos posiciones del formulario
+        labels.forEach((row, i) => {
+          const clean = String(row[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
+          if (clean !== "") coords[clean] = i + offset;
+        });
+
         // III. PROCESO DE BÚSQUEDA
         const vals = dbTab.getRangeBetweenHeaderAndTotal().getValues();
         const texts = dbTab.getRangeBetweenHeaderAndTotal().getTexts();
         let rIdx = -1, c = 0, found = false;
 
         while (c < vals.length && !found) {
-          if (String(vals[c][headers.indexOf(pkName)]) === String(searchId)) {
+          if (String(vals[c][headers.indexOf(pkName)]) === searchId) {
             rIdx = c;
             found = true;
           }
@@ -84,28 +93,32 @@ function main(
         }
 
         if (found) {
-          // 1. Limpiamos el formulario antes de cargar (excepto el ID)
+          // 1. Limpiamos el formulario antes de cargar
           labels.forEach((row, i) => {
             const clean = String(row[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
-            if (clean !== pkName && clean !== "") {
+            if (clean !== "") {
               inputWS!.getRangeByIndexes(i + offset, 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
             }
           });
 
           // 2. Poblamos el formulario con los datos de la tabla
           headers.forEach((h, col) => {
-            if (coords[h] !== undefined && h !== pkName) {
+            if (coords[h] !== undefined) {
               const range = inputWS!.getRangeByIndexes(coords[h], 2, 1, 1);
 
-              // Lógica Quirúrgica para Fechas: Mantenemos el valor numérico + formato
               if (h.includes("FECHA")) {
                 range.setValue(vals[rIdx][col]); 
-                range.setNumberFormatLocal("dd/mm/yyyy");
+                range.setNumberFormatLocal("dd/mm/aaaa");
               } else {
                 range.setValue(texts[rIdx][col]);
               }
             }
           });
+
+          // 3. Forzamos que el ID del panel quede escrito en el formulario por seguridad visual
+          if (coords[pkName] !== undefined) {
+            inputWS!.getRangeByIndexes(coords[pkName], 2, 1, 1).setValue(searchId);
+          }
 
           actionResult.message = `✅ ${ENT.charAt(0).toUpperCase() + ENT.slice(1)} #${searchId} cargad${GEN} con éxito.`;
           actionResult.logLevel = 'EXITO';
@@ -129,22 +142,24 @@ function main(
     }
   }
 
-  // --- FUNCIONES HELPER ---
+  // --- FUNCIONES HELPER (SIN CAMBIOS) ---
   function updateUI(ws: ExcelScript.Worksheet, res: ActionResult, colors: UXMap, p: string) {
     const item = ws.getNamedItem("UI_FEEDBACK");
-    if (item) {
-      const r = item.getRange();
-      const c = colors[res.logLevel];
-      try {
-        ws.getProtection().unprotect(p);
-        r.setValue(res.message);
-        r.getFormat().getFill().setColor(c.bg);
-        r.getFormat().getFont().setColor(c.txt);
-        r.getFormat().getFont().setBold(true);
-        r.getFormat().setWrapText(true);
-        ws.getRange("A1").select();
-        r.select();
-      } catch (e) { console.log("Error UI: " + e); }
+    if (!item) return; 
+    const r = item.getRange();
+    const c = colors[res.logLevel];
+    const d = new Date();
+    const timeStr = d.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+    const heartbeat = (d.getSeconds() % 2 === 0) ? "⚡" : "✨";
+    try {
+      ws.getProtection().unprotect(p);
+      r.setValue(`[${timeStr}] ${heartbeat} ${res.message}`);
+      r.getFormat().getFill().setColor(c.bg);
+      r.getFormat().getFont().setColor(c.txt);
+      r.getFormat().getFont().setBold(true);
+      r.getFormat().setWrapText(true);
+    } catch (e) {
+      try { r.setValue(res.message); } catch (e2) {}
     }
   }
 

@@ -1,14 +1,29 @@
 function main(
   workbook: ExcelScript.Workbook,
-  targetTableName: string = "TablaDesvios",
-  historyTableName: string = "TablaDesviosHistorial",
-  inputSheetName: string = "INP_DES",
-  userEmail: string = "USUARIO_TEST_MANUAL"
+  entidad: string,          // Viene de PA: "DESVIO" o "CAPA"
+  idDesdePanel: string,     // ID escrito en el panel
+  motivoDesdePanel: string, // Motivo escrito en el panel
+  userEmail: string
 ) {
-  // --- CONFIGURACIÓN DE IDENTIDAD DEL MÓDULO ---
-  const ENT = "desvío";  // El nombre de la entidad en minúsculas
-  const ART = "el";      // "el" para masculino, "la" para femenino
-  const GEN = "o";       // "o" para masculino (cerrado), "a" para femenino (cerrada)
+  // --- LIMPIEZA DE PARÁMETRO (Anti-Error de PA) ---
+  const entidadLimpia = String(entidad).replace(/[\[\]"]/g, "").toUpperCase().trim();
+
+  // --- MAPEADOR DE CONFIGURACIÓN (El Cerebro) ---
+  const MAPPING: { [key: string]: { tab: string, hist: string, inp: string, ent: string, art: string, gen: string } } = {
+    "DESVIO": { tab: "TablaDesvios", hist: "TablaDesviosHistorial", inp: "INP_DES", ent: "desvío", art: "el", gen: "o" },
+    "CAPA": { tab: "TablaCapas", hist: "TablaCapasHistorial", inp: "INP_CAPAS", ent: "CAPA", art: "la", gen: "a" }
+  };
+
+  const config = MAPPING[entidadLimpia];
+  if (!config) throw new Error(`La entidad '${entidad}' no está configurada.`);
+
+  // --- CONFIGURACIÓN DE IDENTIDAD DINÁMICA ---
+  const ENT = config.ent;
+  const ART = config.art;
+  const GEN = config.gen;
+  const targetTableName = config.tab;
+  const historyTableName = config.hist;
+  const inputSheetName = config.inp;
 
   type CellValue = string | number | boolean;
   interface ActionResult { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
@@ -35,16 +50,16 @@ function main(
     mastersWS = workbook.getWorksheet("MAESTROS");
     sysKey = workbook.getNamedItem("SISTEMA_CLAVE");
 
-    if (!inputWS) throw new Error(`Error de configuración: No se halló la hoja de entrada '${inputSheetName}'.`);
+    if (!inputWS) throw new Error(`Error de configuración: No se halló la hoja '${inputSheetName}'.`);
     if (!mastersWS) throw new Error("Error de configuración: Hoja MAESTROS no disponible.");
-    if (!sysKey) throw new Error("Error de configuración: No se halló el rango 'SISTEMA_CLAVE'.");
+    if (!sysKey) throw new Error("Error de configuración: No se halló 'SISTEMA_CLAVE'.");
 
     pass = sysKey.getRange().getText();
     dbTab = workbook.getTable(targetTableName);
     histTab = workbook.getTable(historyTableName);
 
-    if (!dbTab) throw new Error(`Error de configuración: La tabla '${targetTableName}' no existe.`);
-    if (!histTab) throw new Error(`Error de configuración: La tabla '${historyTableName}' no existe.`);
+    if (!dbTab) throw new Error(`Error: La tabla '${targetTableName}' no existe.`);
+    if (!histTab) throw new Error(`Error: La tabla '${historyTableName}' no existe.`);
 
     // II. CAPTURA DE DATOS DEL FORMULARIO
     inputWS.getProtection().unprotect(pass);
@@ -62,15 +77,31 @@ function main(
           const c = raw.replace("*", "").trim().replace(/\s/g, "_");
           if (raw.endsWith("*")) req.push(c);
           const val = inputWS!.getRangeByIndexes(i + off, 2, 1, 1).getValue();
-          data[c] = (val === "" || val === null) ? (raw.endsWith("*") ? "" : "N/A") : val;
+          data[c] = (val === null || String(val).trim() === "") ? (raw.endsWith("*") ? "" : "N/A") : val;
         }
       });
 
       const headers = dbTab.getHeaderRowRange().getValues()[0].map(h => String(h).toUpperCase().replace(/\s/g, "_"));
       const pkName = headers[0];
-      const searchId = data[pkName];
+      
+      // PRIORIDAD DE ID DESDE PANEL
+      
+      // --- SALVAGUARDA DE INTEGRIDAD ESTRICTA ---
+      const idEnPanel = idDesdePanel.trim().toUpperCase();
+      const idEnHoja = String(data[pkName] || "").trim().toUpperCase();
 
-      if (!searchId || searchId === "N/A") {
+      // REGLA DE ORO: Deben existir ambos y ser idénticos para avanzar.
+      if (idEnPanel === "" || idEnHoja === "" || idEnHoja === "N/A" || idEnPanel !== idEnHoja) {
+          actionResult.success = false;
+          actionResult.message = `⚠️ ERROR: Mismatch de ID. Panel: [${idEnPanel || "VACÍO"}] | Hoja: [${idEnHoja || "VACÍO"}]. Busque el registro en Excel antes de actualizar.`;
+          actionResult.logLevel = 'ERROR';
+          throw new Error(actionResult.message);
+      }
+
+      // Si pasó el filtro, el ID es 100% confiable
+      const searchId = idEnPanel;
+
+      if (!searchId || searchId === "" || searchId === "N/A") {
         actionResult.success = false;
         actionResult.message = `Se necesita un ID de ${ENT} para continuar.`;
         actionResult.logLevel = 'WARN';
@@ -81,7 +112,7 @@ function main(
         let rIdx = -1, c = 0, found = false;
 
         while (c < vs.length && !found) {
-          if (String(vs[c][headers.indexOf(pkName)]) === String(searchId)) {
+          if (String(vs[c][headers.indexOf(pkName)]) === searchId) {
             rIdx = c;
             found = true;
           }
@@ -97,30 +128,32 @@ function main(
 
           if (["CERRADO", "ANULADO"].includes(estadoActual)) {
             actionResult.success = false;
-            actionResult.message = `⚠️ No se puede modificar un${ART === "la" ? "a" : ""} ${ENT} que se encuentra en estado ${estadoActual}.`;
+            actionResult.message = `⚠️ No se puede modificar un${ART} ${ENT} en estado ${estadoActual}.`;
             actionResult.logLevel = 'WARN';
           } else {
-            // IV. COMPARACIÓN DE CAMBIOS (LOGICA QUIRÚRGICA)
+            // IV. COMPARACIÓN DE CAMBIOS
             const hRow = [...vs[rIdx]];
             const log: string[] = [];
             const vEs: string[] = [];
             const cambiosABase: { col: number, val: CellValue }[] = [];
 
+            // Validación Quirúrgica de Obligatorios
+            req.forEach(f => {
+              if (data[f] === "" || data[f] === null) vEs.push(`Falta campo obligatorio: ${f.replace(/_/g, " ")}`);
+            });
+
             headers.forEach((h, colIdx) => {
               if (["AUDIT_TRAIL", "ESTADO", "USUARIO"].includes(h)) return;
               if (data.hasOwnProperty(h)) {
-                const oT = ts[rIdx][colIdx]; // Texto actual en la tabla
-                const nV = data[h];         // Valor nuevo en el formulario
+                const oT = ts[rIdx][colIdx]; 
+                const nV = data[h];         
                 let nT = "";
 
-                // Tratamiento de fechas (Búfer de 12hs + 2-digit)
                 if (typeof nV === "number" && h.includes("FECHA")) {
                   const ms = Math.round((nV - 25569) * 86400 * 1000) + 43200000;
                   nT = new Date(ms).toLocaleDateString('es-AR', {
                     timeZone: 'America/Argentina/Buenos_Aires',
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric'
+                    day: '2-digit', month: '2-digit', year: 'numeric'
                   });
                 } else {
                   nT = String(nV);
@@ -128,16 +161,14 @@ function main(
 
                 if (oT.trim() !== nT.trim()) {
                   log.push(`${h}: [${oT}] -> [${nT}]`);
-                  hRow[colIdx] = nV;
                   cambiosABase.push({ col: colIdx, val: nV });
                 }
               }
             });
 
-            // V. REGLAS DE NEGOCIO (Motor Universal)
+            // V. REGLAS DE NEGOCIO
             const rulesTab = mastersWS.getTable("TablaReglas");
-            const valFuente = data; // 'data' es como lo llamamos en Actualizar
-            // V. REGLAS DE NEGOCIO (Motor Universal)
+            const valFuente = data; 
             if (rulesTab) {
               rulesTab.getRangeBetweenHeaderAndTotal().getValues().forEach(r => {
                 if (targetTableName.toUpperCase().includes(String(r[0]).toUpperCase())) {
@@ -145,11 +176,8 @@ function main(
                   const op = String(r[2]);
                   const vB_Raw = String(r[3]);
                   const msg = String(r[4]);
-
-                  // Usamos valFuente (el puente que definimos arriba)
                   const vA = valFuente[kA];
 
-                  // --- CASO 1: EXISTE EN TABLA EXTERNA ---
                   if (op === "EXISTE_EN") {
                     if (vA && vA !== "N/A" && vB_Raw.includes("[")) {
                       const [tName, cPart] = vB_Raw.split("[");
@@ -162,13 +190,9 @@ function main(
                       }
                     }
                   } 
-                  
-                  // --- CASO 2: COMPARACIÓN DE FECHAS ---
                   else if (op === "<=" || op === ">=") {
                     const kB = vB_Raw.toUpperCase().replace(/\s/g, "_");
-                    // Buscamos vB en el formulario. Si no está, lo buscamos en la fila de la tabla (solo en Actualizar)
-                    const vB = valFuente[kB] !== undefined ? valFuente[kB] : (typeof hRow !== 'undefined' ? hRow[headers.indexOf(kB)] : undefined);
-
+                    const vB = valFuente[kB] !== undefined ? valFuente[kB] : hRow[headers.indexOf(kB)];
                     if (vA && vB && vA !== "N/A" && vB !== "N/A") {
                       const dA = parseDateToNum(vA), dB = parseDateToNum(vB);
                       if (isNaN(dA) || isNaN(dB)) {
@@ -192,25 +216,20 @@ function main(
             } else if (log.length === 0) {
               actionResult.message = "ℹ️ No se detectaron cambios para guardar.";
               actionResult.logLevel = 'INFO';
-            } else if (!data["MOTIVO"] || data["MOTIVO"] === "N/A" || data["MOTIVO"] === "") {
+            } else if (!motivoDesdePanel || motivoDesdePanel.trim() === "") {
               actionResult.success = false;
-              actionResult.message = `⚠️ Por favor, ingresa el motivo de la modificación de ${ART} ${ENT}.`;
+              actionResult.message = `⚠️ Por favor, ingresa el motivo de la modificación en el panel.`;
               actionResult.logLevel = 'WARN';
             } else {
               // VII. EJECUCIÓN DEL COMMIT
               dbTab.getWorksheet().getProtection().unprotect(pass);
-              
-              // Actualizamos Auditoría y Usuario en Tabla Principal
               const filaRango = dbTab.getRangeBetweenHeaderAndTotal().getRow(rIdx);
               cambiosABase.forEach(c => filaRango.getCell(0, c.col).setValue(c.val));
+              
               const aI = headers.indexOf("AUDIT_TRAIL");
               if (aI !== -1) filaRango.getCell(0, aI).setValue(new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false }));
               const uI = headers.indexOf("USUARIO");
               if (uI !== -1) filaRango.getCell(0, uI).setValue(userEmail);
-
-              
-              
-              
 
               // Grabación en Historial
               histTab.getWorksheet().getProtection().unprotect(pass);
@@ -223,7 +242,7 @@ function main(
                 }
                 if (head === pkName) return searchId;
                 if (head === "USUARIO") return userEmail;
-                if (head === "MOTIVO") return String(data["MOTIVO"]);
+                if (head === "MOTIVO") return motivoDesdePanel.trim();
                 if (head === "CAMBIOS") return log.join(" | ");
                 if (head === "FECHA_CAMBIO") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
                 return "";
@@ -252,7 +271,7 @@ function main(
     }
   }
 
-  // --- FUNCIONES HELPER ---
+  // --- FUNCIONES HELPER (SIN CAMBIOS) ---
   function parseDateToNum(v: CellValue): number {
     if (typeof v === "number") return v;
     const p = String(v).split("/");
@@ -262,32 +281,31 @@ function main(
     }
     return NaN;
   }
-
   function updateUI(ws: ExcelScript.Worksheet, res: ActionResult, colors: UXMap, p: string) {
     const item = ws.getNamedItem("UI_FEEDBACK");
-    if (item) {
-      const r = item.getRange();
-      const c = colors[res.logLevel];
-      try {
-        ws.getProtection().unprotect(p);
-        r.setValue(res.message);
-        r.getFormat().getFill().setColor(c.bg);
-        r.getFormat().getFont().setColor(c.txt);
-        r.getFormat().getFont().setBold(true);
-        r.getFormat().setWrapText(true);
-        ws.getRange("A1").select();
-        r.select();
-      } catch (e) { console.log("Error UI: " + e); }
+    if (!item) return; 
+    const r = item.getRange();
+    const c = colors[res.logLevel];
+    const d = new Date();
+    const timeStr = d.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+    const heartbeat = (d.getSeconds() % 2 === 0) ? "⚡" : "✨";
+    try {
+      ws.getProtection().unprotect(p);
+      r.setValue(`[${timeStr}] ${heartbeat} ${res.message}`);
+      r.getFormat().getFill().setColor(c.bg);
+      r.getFormat().getFont().setColor(c.txt);
+      r.getFormat().getFont().setBold(true);
+      r.getFormat().setWrapText(true);
+    } catch (e) {
+      try { r.setValue(res.message); } catch (e2) {}
     }
   }
-
   function protect(ws: ExcelScript.Worksheet | undefined, p: string, res: ActionResult) {
     if (ws) {
       try { ws.getProtection().protect({ allowAutoFilter: true }, p); }
       catch (e) { res.message += ` [⚠️ Seguridad: ${ws.getName()}]`; }
     }
   }
-
   function clearForm(ws: ExcelScript.Worksheet, ls: CellValue[][], o: number, pk: string) {
     ls.forEach((row, i) => {
       const c = String(row[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");

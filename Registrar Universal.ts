@@ -1,16 +1,29 @@
 function main(
   workbook: ExcelScript.Workbook,
-  targetTableName: string = "TablaDesvios",
-  historyTableName: string = "TablaDesviosHistorial",
-  inputSheetName: string = "INP_DES",
-  entitySequenceCode: string = "DESVIO",
-  userEmail: string = "USUARIO_TEST_MANUAL"
+  entidad: string,      // Viene de PA: "DESVIO" o "CAPA"
+  userEmail: string     // Usuario que registra
 ) {
-  // --- CONFIGURACIÓN DE IDENTIDAD DEL MÓDULO ---
-  const ENT = "desvío";  // El nombre de la entidad en minúsculas
-  const ART = "el";      // "el" para masculino, "la" para femenino
-  const GEN = "o";       // "o" para masculino (cerrado), "a" para femenino (cerrada)
-  const PREF = "D-";
+  // --- LIMPIEZA DE PARÁMETRO (Anti-Error de PA) ---
+  const entidadLimpia = String(entidad).replace(/[\[\]"]/g, "").toUpperCase().trim();
+
+  // --- MAPEADOR DE CONFIGURACIÓN (El Cerebro) ---
+  const MAPPING: { [key: string]: { tab: string, hist: string, inp: string, pref: string, ent: string, art: string, gen: string } } = {
+    "DESVIO": { tab: "TablaDesvios", hist: "TablaDesviosHistorial", inp: "INP_DES", pref: "D-", ent: "desvío", art: "el", gen: "o" },
+    "CAPA": { tab: "TablaCapas", hist: "TablaCapasHistorial", inp: "INP_CAPAS", pref: "C-", ent: "CAPA", art: "la", gen: "a" },
+    "AFECTACION": { tab: "TablaAfectacion", hist: "TablaAfectacionHistorial", inp: "INP_AFECT", pref: "AF-", ent: "AFECTACION", art: "la", gen: "a" }
+  };
+
+  const config = MAPPING[entidadLimpia];
+  if (!config) throw new Error(`La entidad '${entidad}' no está configurada.`);
+
+  // --- CONFIGURACIÓN DE IDENTIDAD DINÁMICA ---
+  const ENT = config.ent;
+  const ART = config.art;
+  const GEN = config.gen;
+  const PREF = config.pref;
+  const targetTableName = config.tab;
+  const historyTableName = config.hist;
+  const inputSheetName = config.inp;
 
   type CellValue = string | number | boolean;
   interface ActionResult { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
@@ -24,7 +37,7 @@ function main(
     INFO: { bg: "#E2E3E5", txt: "#383D41" }
   };
 
-  let inputWS: ExcelScript.Worksheet | undefined,dbTab: ExcelScript.Table | undefined, histTab: ExcelScript.Table | undefined, mastersWS: ExcelScript.Worksheet | undefined, sysKey: ExcelScript.NamedItem | undefined;
+  let inputWS: ExcelScript.Worksheet | undefined, dbTab: ExcelScript.Table | undefined, histTab: ExcelScript.Table | undefined, mastersWS: ExcelScript.Worksheet | undefined, sysKey: ExcelScript.NamedItem | undefined;
   let pass: string = "";
   let hRow: CellValue[] | undefined = undefined;
 
@@ -40,10 +53,10 @@ function main(
 
     pass = sysKey.getRange().getText();
     dbTab = workbook.getTable(targetTableName);
+    
     const filter = dbTab.getAutoFilter();
-    if (filter) {
-      filter.clearCriteria();
-    }
+    if (filter) filter.clearCriteria();
+    
     histTab = workbook.getTable(historyTableName);
 
     if (!dbTab) throw new Error(`Error: La tabla de datos '${targetTableName}' no existe.`);
@@ -65,7 +78,8 @@ function main(
           const clean = raw.replace("*", "").trim().replace(/\s/g, "_");
           if (raw.endsWith("*")) required.push(clean);
           const val = inputWS!.getRangeByIndexes(i + offset, 2, 1, 1).getValue();
-          inputData[clean] = (val === "" || val === null) ? (raw.endsWith("*") ? "" : "N/A") : val;
+          // Lógica de obligatorios y N/A
+          inputData[clean] = (val === null || String(val).trim() === "") ? (raw.endsWith("*") ? "" : "N/A") : val;
         }
       });
 
@@ -83,10 +97,8 @@ function main(
       }
 
       // --- 2. MOTOR DE REGLAS DE NEGOCIO ---
-      // V. REGLAS DE NEGOCIO (Motor Universal)const rulesTab = mastersWS.getTable("TablaReglas");
-      const valFuente = inputData; // 'inputData' es como lo llamamos en Registrar
+      const valFuente = inputData;
       const vEs: string[] = [];
-      // V. REGLAS DE NEGOCIO (Motor Universal)
       const rulesTab = mastersWS.getTable("TablaReglas");
       if (rulesTab) {
         rulesTab.getRangeBetweenHeaderAndTotal().getValues().forEach(r => {
@@ -95,11 +107,8 @@ function main(
             const op = String(r[2]);
             const vB_Raw = String(r[3]);
             const msg = String(r[4]);
-
-            // Usamos valFuente (el puente que definimos arriba)
             const vA = valFuente[kA];
 
-            // --- CASO 1: EXISTE EN TABLA EXTERNA ---
             if (op === "EXISTE_EN") {
               if (vA && vA !== "N/A" && vB_Raw.includes("[")) {
                 const [tName, cPart] = vB_Raw.split("[");
@@ -112,13 +121,38 @@ function main(
                 }
               }
             } 
-            
-            // --- CASO 2: COMPARACIÓN DE FECHAS ---
+            else if (op === "ESTA_ABIERTO") {
+              // vA: ID que escribió el usuario (ej: "DES-001")
+              // vB_Raw: "BD_DESV[ID];[ESTADO];ABIERTO"
+              if (vA && vA !== "N/A" && vB_Raw.includes(";")) {
+                  const [targetPart, statusColPart, validValue] = vB_Raw.split(";"); 
+                  // targetPart = "BD_DESV[ID]"
+                  const [tName, cPart] = targetPart.split("[");
+                  const idColName = cPart.replace("]", "");
+                  const statusColName = statusColPart.replace("[", "").replace("]", "");
+
+                  const targetTab = workbook.getTable(tName);
+                  if (targetTab) {
+                      // Obtenemos las columnas de ID y de ESTADO
+                      const idVals = targetTab.getColumnByName(idColName).getRangeBetweenHeaderAndTotal().getValues();
+                      const statusVals = targetTab.getColumnByName(statusColName).getRangeBetweenHeaderAndTotal().getValues();
+
+                      // Buscamos el índice de la fila donde está nuestro ID
+                      const rowIndex = idVals.findIndex(row => String(row[0]) === String(vA));
+
+                      if (rowIndex !== -1) {
+                          const estadoActual = String(statusVals[rowIndex][0]);
+                          // Si el estado no es el esperado (ABIERTO), disparamos el error
+                          if (estadoActual !== validValue) {
+                              vEs.push(msg);
+                          }
+            }
+        }
+    }
+            }
             else if (op === "<=" || op === ">=") {
               const kB = vB_Raw.toUpperCase().replace(/\s/g, "_");
-              // Buscamos vB en el formulario. Si no está, lo buscamos en la fila de la tabla (solo en Actualizar)
-              const vB = valFuente[kB] !== undefined ? valFuente[kB] : (hRow ? hRow[headers.indexOf(kB)] : undefined);
-
+              const vB = valFuente[kB];
               if (vA && vB && vA !== "N/A" && vB !== "N/A") {
                 const dA = parseDateToNum(vA), dB = parseDateToNum(vB);
                 if (isNaN(dA) || isNaN(dB)) {
@@ -148,9 +182,9 @@ function main(
       const finalID = PREF + nextNum;
 
       // --- III. PROCESAMIENTO (COMMIT) ---
-      if (vErrors.length > 0) {
+      if (vErrors.length > 0 || vEs.length > 0) {
         actionResult.success = false;
-        actionResult.message = "⚠️ Validación:\n" + vErrors.join("\n");
+        actionResult.message = "⚠️ Validación:\n" + [...vErrors, ...vEs].join("\n");
         actionResult.logLevel = 'WARN';
       } else {
         try {
@@ -162,9 +196,8 @@ function main(
             if (h === "USUARIO") return userEmail;
             if (h === "AUDIT_TRAIL") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
             if (inputData.hasOwnProperty(h)) {
-                const valor = inputData[h];
-                // Si está vacío o es N/A (esto ya lo calculamos arriba en la captura), devolvemos N/A
-                return (valor === "" || valor === null || valor === "N/A") ? "N/A" : valor;
+              const valor = inputData[h];
+              return (valor === "" || valor === null || valor === "N/A") ? "N/A" : valor;
             }
             return null;
           });
@@ -188,7 +221,6 @@ function main(
           });
           histTab.addRow(-1, hRow);
 
-          // C. RESULTADO EXITOSO
           actionResult.message = `✅ ${ART.toUpperCase()} ${ENT.toUpperCase()} #${finalID} se ha cread${GEN} correctamente.`;
           actionResult.logLevel = 'EXITO';
           clearForm(inputWS, labels, offset, pkName);
@@ -205,7 +237,6 @@ function main(
     actionResult.message = `❌ Sistema: ${String(err)}`;
     actionResult.logLevel = 'ERROR';
   } finally {
-    console.log(`[LOG] Éxito: ${actionResult.success}. Mensaje: ${actionResult.message}`);
     if (inputWS) {
       const p: string = sysKey ? sysKey.getRange().getText() : "";
       updateUI(inputWS, actionResult, UX_COLORS, p);
@@ -231,18 +262,26 @@ function main(
 
   function updateUI(ws: ExcelScript.Worksheet, res: ActionResult, colors: UXMap, p: string) {
     const item = ws.getNamedItem("UI_FEEDBACK");
-    if (item) {
-      const r = item.getRange();
-      const c = colors[res.logLevel];
-      try {
-        ws.getProtection().unprotect(p);
-        r.setValue(res.message);
-        r.getFormat().getFill().setColor(c.bg);
-        r.getFormat().getFont().setColor(c.txt);
-        r.getFormat().getFont().setBold(true);
-        r.getFormat().setWrapText(true);
-        ws.getRange("A1").select(); r.select();
-      } catch (e) { console.log("Error UI: " + e); }
+    const ui_prep = ws.getNamedItem("UI_PREPARACION");
+    if (!item) return; 
+    if (!ui_prep) return; 
+    const r = item.getRange();
+    const rangePrep = ui_prep.getRange();
+    const c = colors[res.logLevel];
+    const d = new Date();
+    const timeStr = d.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+    const heartbeat = (d.getSeconds() % 2 === 0) ? "⚡" : "✨";
+    try {
+      ws.getProtection().unprotect(p);
+      r.setValue(`[${timeStr}] ${heartbeat} ${res.message}`);
+      r.getFormat().getFill().setColor(c.bg);
+      r.getFormat().getFont().setColor(c.txt);
+      r.getFormat().getFont().setBold(true);
+      r.getFormat().setWrapText(true);
+      rangePrep.setValue("");
+      rangePrep.getFormat().getFill().clear();
+    } catch (e) {
+      try { r.setValue(res.message); } catch (e2) {}
     }
   }
 
