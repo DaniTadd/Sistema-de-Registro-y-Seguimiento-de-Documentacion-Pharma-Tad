@@ -50,7 +50,7 @@ function main(
 
     if (!inputWS) throw new Error(`Error: No se halló la hoja '${inputSheetName}'.`);
     if (!sysKey) throw new Error("Error: No se halló 'SISTEMA_CLAVE'.");
-
+    inputWS.getRange("A1").select()
     pass = sysKey.getRange().getText();
     dbTab = workbook.getTable(targetTableName);
     histTab = workbook.getTable(historyTableName);
