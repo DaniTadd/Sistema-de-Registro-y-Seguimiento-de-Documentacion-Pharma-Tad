@@ -1,107 +1,92 @@
-# 🏭 SGC-Engine: Motor Universal de Gestión de Calidad (GMP)
+# 🏭 SGC-Engine: Enterprise-Grade Quality Management on a Spreadsheet
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.0.0-blue.svg?style=for-the-badge)
 ![Tech](https://img.shields.io/badge/Office_Scripts-TypeScript-3178C6.svg?style=for-the-badge)
 ![Compliance](https://img.shields.io/badge/Compliance-ALCOA%2B%20%2F%20GMP-orange.svg?style=for-the-badge)
+![Cost](https://img.shields.io/badge/Infrastructure-Zero_Cost-green.svg?style=for-the-badge)
 
-## 💎 Visión Estratégica: El Dato como Activo
+## 💎 Visión Estratégica: El Dato como Activo Crítico
 
-> **Cultura de la Información:** Del registro de calidad como tarea administrativa a un pilar estratégico. En este sistema, la integridad de datos trasciende el cumplimiento normativo para convertirse en un motor de la inteligencia y la toma de decisiones de la compañía.
+El **SGC-Engine** no es solo una hoja de cálculo; es un **Motor Universal de Gestión** diseñado para transformar el registro de calidad de una tarea administrativa pesada en un pilar estratégico de inteligencia de negocio. 
 
-1. **Escalabilidad Garantizada:** El diseño de tablas normalizadas facilita una transición fluida hacia **Power Apps / Dataverse**, funcionando como un prototipo funcional de alta fidelidad.
-2. **Data-Ready para BI:** La estructura de "Esquema en Estrella" asegura que la información sea consumible de inmediato por herramientas de **Business Intelligence (Power BI)** sin necesidad de limpieza previa.
-3. **Análisis de Valor (RCA):** La trazabilidad entre entidades (Madre-Hija) permite realizar análisis de causa raíz y tendencias con rigor estadístico, transformando el cumplimiento normativo en inteligencia de negocio.
+En entornos regulados (GMP), la integridad de datos suele verse como una carga burocrática. Este sistema rompe ese paradigma basándose en tres ejes:
 
----
-
-## ⚖️ ¿Por qué Excel Online + Office Scripts? (Business Case)
-
-### 1. Infraestructura Zero ($0 Inversión)
-Si su organización ya posee licencias de **Microsoft 365**, el costo de infraestructura es **cero**. Se eliminan gastos de servidores SQL, hosting web o licencias de software de nicho ni consultoría especializada en IT.
-
-### 2. Adopción con Resistencia Cero
-Los usuarios no necesitan aprender a usar un software nuevo. La interfaz es Excel, un entorno que ya dominan. Esto reduce reduce drásticamente el tiempo de capacitación, la resistencia al cambio y los errores de carga comparado con la implementación de un nuevo software propietario.
-
-### 3. Stack Moderno y Co-autoría
-A diferencia de las macros VBA antiguas, este motor corre en la nube. Permite que múltiples usuarios operen el sistema simultáneamente (Co-autoría) desde cualquier dispositivo, garantizando seguridad y disponibilidad 24/7.
-
+1.  **Escalabilidad Nativa:** Diseñado con lógica de base de datos relacional, permitiendo una transición transparente hacia **Power Apps o Dataverse** cuando el negocio lo requiera.
+2.  **Data-Ready (BI):** Estructura de "Esquema en Estrella" que permite conectar **Power BI** en segundos, sin necesidad de limpiezas previas.
+3.  **Rigor Normativo:** Implementación técnica de los principios **ALCOA+**, garantizando que cada dato sea Atribuible, Legible, Contemporáneo, Original y Exacto.
 
 ---
 
-## 🛠️ Fortalezas del Sistema
+## ⚖️ El Business Case: ¿Por qué Excel + Office Scripts?
 
-### Stack Moderno (Cloud vs. Local)
-A diferencia de las macros tradicionales (VBA), **Office Scripts** se ejecuta en la nube de Microsoft. Esto aporta ventajas críticas para el entorno corporativo:
-* **Co-autoría Real:** Varios usuarios pueden editar el archivo simultáneamente mientras los scripts se ejecutan, sin bloqueos de lectura/escritura.
-* **Multiplataforma:** El sistema funciona en Excel Online desde cualquier navegador o dispositivo (PC, Tablet), eliminando la dependencia de instalaciones locales.
-* **Seguridad:** Al no utilizar archivos `.xlsm`, se mitigan los riesgos de virus por macro y se facilita la distribución segura del libro.
+Muchas organizaciones invierten miles de dólares en software de nicho que termina subutilizado por su complejidad. El SGC-Engine propone un camino disruptivo:
 
+### 1. Inversión Cero ($0 USD)
+Si tu organización ya paga licencias de **Microsoft 365**, ya tenés todo lo que necesitás. Aprovechamos el stack tecnológico existente para eliminar costos de servidores, hosting o licencias adicionales de software propietario.
 
+### 2. Adopción con Resistencia Cero (User-Centric)
+El mayor costo de un sistema nuevo es la capacitación. Al utilizar la interfaz de Excel —un entorno que los usuarios ya dominan y en el que confían— eliminamos la fricción del cambio y reducimos drásticamente los errores de carga.
 
-### 🌟 Diferenciales de Diseño
-* **Flexibilidad Total:** Gracias a un sistema de **"Mapeo Dinámico"**, es posible agregar nuevos campos (ej. "Turno", "Temperatura") directamente en la hoja de Excel sin necesidad de modificar una sola línea de código.
-* **Arquitectura de Datos (Star Schema):** El sistema utiliza un enfoque de **Esquema en Estrella** donde la Base de Datos centraliza los hechos (registros), mientras que las hojas de Maestros y Reglas actúan como dimensiones. Esta organización garantiza que los datos sean robustos, normalizados y fáciles de exportar a herramientas de Power BI.
+### 3. Stack Moderno (Cloud-Native)
+A diferencia de las antiguas macros VBA (locales y monousuario), este motor utiliza **Office Scripts (TypeScript)**:
+* **Co-autoría:** Varios usuarios pueden operar el sistema simultáneamente en la nube.
+* **Seguridad:** Ejecución segura en los servidores de Microsoft, eliminando riesgos de virus por macro y facilitando el acceso desde cualquier dispositivo (PC, Tablet, Web).
 
-### 🛡️ Integridad de Datos (ALCOA+)
-Diseñado bajo principios de cumplimiento normativo:
-* **Audit Trail:** Registro inmutable de *Quién* cambio *Qué* y *Cuándo* lo hizo.
-* **Firmas Electrónicas:** Captura de usuario y motivo de cambio obligatorios.
-* **Seguridad:** Bloqueo automático de registros cerrados o anulados.
+---
 
-### 🧬 Arquitectura "Madre-Hija"
-El sistema está diseñado como un motor genérico. La "Entidad Madre" (Ej: Desvíos) provee el ADN funcional que puede ser replicado instantáneamente para otras entidades (Ej: Controles de cambios) y la "Entidad hija" (Ej: CAPAs, Afectaciones, etc.), para los registros dependientes del principal (ejemplo, CAPAs de un Desvío, Acciones de un Control de Cambios, etc.).
+## 🛠️ Fortalezas y Diferenciales de Diseño
 
-### 💉 Compromiso Quirúrgico de Datos
-A diferencia de otros scripts, el **SGC-Engine** protege sus fórmulas nativas. 
-* Solo sobrescribe las celdas que el usuario modifica explícitamente.
-* Respeta las columnas de cálculo automático, permitiendo indicadores en tiempo real dentro de la base de datos sin riesgo de borrado accidental.
+### 🧬 Arquitectura "Madre-Hija" (Modularidad)
+El sistema funciona como un ADN funcional. La "Entidad Madre" (ej. Desvíos) provee la lógica que se replica instantáneamente para "Entidades Hijas" (ej. CAPAs, Afectaciones), permitiendo una trazabilidad total y análisis de causa raíz (RCA) con rigor estadístico.
 
+### 🛡️ Integridad Quirúrgica de Datos
+* **Salvaguarda de Identidad:** El sistema incluye un motor de validación que impide actualizar registros si existe un "mismatch" entre el panel de control y la base de datos.
+* **Protección de Fórmulas:** El script detecta y preserva las columnas de cálculo automático de Excel, enviando valores `null` donde sea necesario para no romper la inteligencia nativa de la hoja.
+* **Audit Trail Real:** Registro inmutable de *Quién*, *Qué*, *Cuándo* y *Por qué* (Motivo obligatorio de cambio).
 
 ### ⚖️ Motor de Reglas Dinámico
-Permite configurar validaciones de negocio (ej: "La fecha de cierre no puede ser menor a la de apertura") directamente desde una tabla en Excel, sin tocar una sola línea de código.
-
-
+Permite al administrador configurar validaciones complejas (ej: "Fecha de cierre no puede ser anterior a apertura") directamente desde una tabla de Excel, sin necesidad de escribir una sola línea de código adicional.
 
 ---
-
 
 ## 🚀 Roadmap de Evolución
 
-* **v1.0 (Actual):** Módulo de Desvíos consolidado. Registro, Búsqueda, Actualización y Audit Trail.
-* **v2.0 (En Desarrollo):** * **Entidades Hijas:** Lanzamiento de módulos de **Afectaciones** y **CAPAs** vinculados a la entidad madre.
-    * **Integridad Cruzada:** Validación de códigos de producto/lote contra maestros globales.
+* **v1.0 (Consolidado):** Gestión completa de la Entidad Madre (Registro, Búsqueda, Actualización).
+* **v2.0 (Actual):** * Lanzamiento de **Entidades Hijas** (CAPAs/Afectaciones) con integridad cruzada.
+    * Regla `ESTA_ABIERTO` para bloqueo de jerarquías.
 * **v3.0 (Visión):**
-    * **Analytics:** Tableros de control nativos en Power BI consumiendo la data estructurada del motor.
-    * **Cloud Forms:** Captura remota de datos desde dispositivos móviles.
+    * **Analytics Avanzado:** Tableros nativos en Power BI consumiendo el motor.
+    * **Captura Móvil:** Integración directa con Power Automate Forms.
 
 ---
 
-## ⚙️ Instalación y Requisitos
+## ⚙️ Instalación y Despliegue Rápido
 
-### Requisitos Técnicos
-* Cuenta de **Microsoft 365 Business** (Basic, Standard o Premium).
-* Excel Online habilitado para **Office Scripts**.
+1.  **Infraestructura:** Crear las hojas de proceso (Input, DB, Historial) y la hoja de Maestros.
+2.  **Seguridad:** Definir el rango `SISTEMA_CLAVE` con tu contraseña de protección.
+3.  **Carga:** Copiar los archivos de `/src` al editor de Office Scripts en Excel Online.
+4.  **Sincronización:** (Opcional) Usar el puente de Python incluido para mantener tu repositorio Git sincronizado con OneDrive.
 
-
-## 🛠️ Instalación y Despliegue
-
-### Pasos Rápidos para Implementación
-1.  **Esquema de Hojas:** Crear las hojas `INPUT_MADRE`, `BD_MADRE` y `HIST_MADRE`.
-2.  **Esquema de Tablas:** Crear las tablas con los siguientes nombres exactos:
-    * `TablaMadre` (en la hoja `BD_MADRE`).
-    * `TablaHistorialMadre` (en la hoja `HIST_MADRE`).
-    * `TablaReglas` (en la hoja `MAESTROS`).
-3.  **Seguridad:** Definir un **Nombre de Rango** llamado `SISTEMA_CLAVE` que apunte a la celda que contiene la contraseña de protección de hojas.
-4.  **Carga de Scripts:** Copiar el contenido de la carpeta `/src` al editor de Office Scripts en Excel Online.
-5.  **Configurar Rangos:** Ejecutar el script `Configurar Rangos` para mapear automáticamente el formulario.
-
-* Para más instrucciones, visitar la [**Memoria Técnica**](./MEMORIA_TECNICA.md).o.
-
---
-
-## ⚖️ Limitaciones y Transparencia
-* **Volumen de Datos:** El sistema es ideal para registros de hasta **10,000 filas**. Esta limitación responde a los tiempos de ejecución (Timeout) de 120 segundos de Office Scripts y al impacto en el rendimiento de Excel Online al procesar grandes volúmenes de datos en memoria. Para escalas mayores, el motor está diseñado para facilitar una transición futura hacia Power Apps/Dataverse.
-* **Entorno:** Diseñado exclusivamente para el ecosistema Microsoft 365 (Web).
+> Para un análisis profundo de la arquitectura, consultar la [**Memoria Técnica**](./MEMORIA_TECNICA.md).
 
 ---
-*Desarrollado con foco en **GMP** (Good Manufacturing Practices) y **Data Integrity**.*
+
+## ⚖️ Transparencia y Limitaciones
+* **Escalabilidad:** Optimizado para registros de hasta **10,000 filas** (debido a los tiempos de ejecución de Office Scripts).
+* **Ecosistema:** Requiere Microsoft 365 (Web) para habilitar todas las funciones de co-autoría y automatización.
+
+---
+
+## 👨‍💻 Detrás del Proyecto: El Camino del Aprendizaje
+
+Este sistema nació como un desafío personal de ingeniería: **¿Es posible llevar a Excel al límite de sus capacidades para que se comporte como un ERP profesional?**
+
+**Lo que me llevo de este desarrollo:**
+* **Arquitectura de Software en la Nube:** Dominio de Office Scripts y su interacción con el ecosistema Power Platform.
+* **Mentalidad Data Integrity:** Aplicación práctica de normativas ALCOA+ en el diseño de bases de datos.
+* **Resolución de Problemas:** Crear un puente en Python para gestionar versiones de Office Scripts (que nativamente no tiene integración con Git) fue un hito clave en mi aprendizaje de automatización de flujos de trabajo.
+
+Este proyecto demuestra que con la arquitectura correcta, las herramientas que ya tenemos en el escritorio pueden ser el motor de transformación digital de una compañía.
+
+---
+*Desarrollado con foco en **GMP** (Good Manufacturing Practices) e **Integridad de Datos**.*

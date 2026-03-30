@@ -1,75 +1,84 @@
 /**
- * Script: UI_Preparar_Datos_V5_Oficial
- * Objetivo: Sincronización confirmada con manejo de Scope de Hoja.
+ * SCRIPT: UI_PREPARAR_DATOS_AUDITABLE
+ * OBJETIVO: Sincronizar el estado de la hoja para procesamiento en la nube.
+ * NIVEL DE AUDITORÍA: Cumplimiento de integridad de datos y trazabilidad visual.
  */
 function main(workbook: ExcelScript.Workbook) {
-  let is_unprotected: boolean = false;
-  const active_sheet = workbook.getActiveWorksheet();
-  const masters_sheet = workbook.getWorksheet("MAESTROS");
+  // --- VARIABLES DE ESTADO ---
+  let isSheetCurrentlyUnprotected: boolean = false;
+  const currentActiveSheet: ExcelScript.Worksheet = workbook.getActiveWorksheet();
+  const mastersWorksheet: ExcelScript.Worksheet = workbook.getWorksheet("MAESTROS");
 
-  // 1. CAPTURA DE INFRAESTRUCTURA (Respetando Scopes)
-  // SISTEMA_CLAVE: Ámbito Libro
-  const key_item = workbook.getNamedItem("SISTEMA_CLAVE");
-  
-  // UI_FEEDBACK y UI_PREPARACION: Ámbito Hoja (active_sheet)
-  const ui_feedback_item = active_sheet.getNamedItem("UI_FEEDBACK");
-  const ui_prepare_item = active_sheet.getNamedItem("UI_PREPARACION");
+  // --- 1. CAPTURA DE INFRAESTRUCTURA (Ámbito de Hoja y Libro) ---
+  // Recuperamos los rangos con nombre definidos para la seguridad y la interfaz
+  const systemKeyNamedItem = workbook.getNamedItem("SISTEMA_CLAVE");
+  const feedbackUINamedItem = currentActiveSheet.getNamedItem("UI_FEEDBACK");
+  const preparationUINamedItem = currentActiveSheet.getNamedItem("UI_PREPARACION");
 
   try {
-    // 2. VALIDACIÓN DE EXISTENCIA
-    if (!key_item || !ui_prepare_item || !masters_sheet) {
-      throw `Error: No se encontró ${!key_item ? "SISTEMA_CLAVE" : "UI_PREPARACION"}.`;
+    // --- 2. VALIDACIÓN DE EXISTENCIA DE COMPONENTES ---
+    // Verificamos que todos los elementos críticos estén presentes antes de operar
+    if (!systemKeyNamedItem || !preparationUINamedItem || !mastersWorksheet) {
+      throw `Error de Infraestructura: No se encontró ${!systemKeyNamedItem ? "SISTEMA_CLAVE" : "UI_PREPARACION"} o la hoja MAESTROS.`;
     }
 
-    // EXTRAEMOS LA CLAVE
-    const pass_val = key_item.getRange().getValue();
-    const pass_str = String(pass_val).trim();
+    // Extracción y limpieza de la credencial de seguridad
+    const rawPasswordValue = systemKeyNamedItem.getRange().getValue();
+    const formattedPasswordString = String(rawPasswordValue).trim();
 
-    // 3. DESPROTECCIÓN (Usando tu solución confirmada)
-    active_sheet.getProtection().unprotect(pass_str);
-    is_unprotected = true;
+    // --- 3. DESPROTECCIÓN DE LA HOJA (Apertura de Sesión de Escritura) ---
+    // Se utiliza la solución confirmada de conversión a String para evitar errores de API
+    currentActiveSheet.getProtection().unprotect(formattedPasswordString);
+    isSheetCurrentlyUnprotected = true;
 
-    // 4. ACTUALIZACIÓN DE INTERFAZ (UI_PREPARACION)
-    const prep_range = ui_prepare_item.getRange();
-    const now = new Date();
-    const time_str = now.toLocaleTimeString('es-AR', { hour12: false });
-    const heart = (now.getSeconds() % 2 === 0) ? "⚡" : "✨";
-
-    prep_range.setValue(`[${time_str}] ${heart} DATOS LISTOS. Sincronización confirmada.`);
+    // --- 4. ACTUALIZACIÓN DE INTERFAZ DE USUARIO (UI_PREPARACION) ---
+    const preparationRange = preparationUINamedItem.getRange();
+    const currentTime = new Date();
+    const formattedTimeLabel = currentTime.toLocaleTimeString('es-AR', { hour12: false });
     
-    // Formato de éxito
-    prep_range.getFormat().getFill().setColor("#D4EDDA"); // Verde suave
-    prep_range.getFormat().getFont().setColor("#155724"); // Verde oscuro
-    prep_range.getFormat().getFont().setBold(true);
-    prep_range.getFormat().setWrapText(true);
+    // Indicador visual dinámico de actividad
+    const statusHeartbeatIcon = (currentTime.getSeconds() % 2 === 0) ? "⚡" : "✨";
 
-    // Limpiamos feedback anterior si existe
-    if (ui_feedback_item) {
-        ui_feedback_item.getRange().setValue("");
-        ui_feedback_item.getRange().getFormat().getFill().clear();
+    // Registro visual de éxito en la hoja
+    preparationRange.setValue(`[${formattedTimeLabel}] ${statusHeartbeatIcon} DATOS LISTOS. Sincronización confirmada.`);
+    
+    // Aplicación de formato visual de confirmación (Esquema Verde)
+    const preparationRangeFormat = preparationRange.getFormat();
+    preparationRangeFormat.getFill().setColor("#D4EDDA"); // Fondo Verde Exito
+    preparationRangeFormat.getFont().setColor("#155724"); // Fuente Contraste
+    preparationRangeFormat.getFont().setBold(true);
+    preparationRangeFormat.setWrapText(true);
+
+    // Limpieza de mensajes de error previos (Feedback de Hoja)
+    if (feedbackUINamedItem) {
+        const feedbackRange = feedbackUINamedItem.getRange();
+        feedbackRange.setValue("");
+        feedbackRange.getFormat().getFill().clear();
     }
 
   } catch (error) {
-    console.log("Error detectado: " + error);
+    // Registro de anomalías en la consola de administración
+    console.log("Excepción detectada durante la preparación: " + error);
     
-    // Si falla y tenemos el rango de feedback de hoja, avisamos al usuario
-    if (ui_feedback_item && is_unprotected) {
-        const f_range = ui_feedback_item.getRange();
-        f_range.setValue("❌ Error: " + String(error));
-        f_range.getFormat().getFill().setColor("#F8D7DA");
+    // Notificación visual de error en la interfaz si la hoja está accesible
+    if (feedbackUINamedItem && isSheetCurrentlyUnprotected) {
+        const feedbackErrorRange = feedbackUINamedItem.getRange();
+        feedbackErrorRange.setValue("❌ Error de Sistema: " + String(error));
+        feedbackErrorRange.getFormat().getFill().setColor("#F8D7DA"); // Fondo Rojo Alerta
     }
   } finally {
-    // 5. RE-PROTECCIÓN SEGURA
-    if (is_unprotected && key_item) {
-      const final_pass = String(key_item.getRange().getValue()).trim();
+    // --- 5. RE-PROTECCIÓN DE SEGURIDAD (Cierre de Sesión) ---
+    // Garantizamos que la hoja no quede vulnerable después de la operación
+    if (isSheetCurrentlyUnprotected && systemKeyNamedItem) {
+      const reprotectionPassword = String(systemKeyNamedItem.getRange().getValue()).trim();
       
-      active_sheet.getProtection().protect({
+      currentActiveSheet.getProtection().protect({
         allowFormatCells: false,
         allowInsertRows: false,
         allowDeleteRows: false
-      }, final_pass);
+      }, reprotectionPassword);
       
-      console.log("Hoja protegida nuevamente.");
+      console.log("Protocolo de seguridad finalizado: Hoja protegida nuevamente.");
     }
   }
 }

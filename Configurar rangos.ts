@@ -1,90 +1,112 @@
+/**
+ * SCRIPT: UI_CONFIGURAR_RANGOS_ENTRADA
+ * OBJETIVO: Establecer el protocolo de bloqueo/desbloqueo de celdas en las hojas de entrada.
+ * GARANTÍA: Asegura que solo los campos destinados a la captura de datos sean editables, protegiendo la integridad de las etiquetas y fórmulas.
+ */
 function main(
   workbook: ExcelScript.Workbook,
-  inputSheetName: string = "INP_DES", // Parametrizado
-  mastersSheetName: string = "MAESTROS" // Parametrizado
+  nombreHojaEntrada: string = "INP_DES", // Parametrizado para uso universal
+  nombreHojaMaestros: string = "MAESTROS" // Parametrizado para consulta de claves
 ) {
-  // --- CONFIGURACIÓN DE IDENTIDAD ---
-  const ENT = "desvío"; 
-  const ART = "el";
-  const NOMBRE_RANGO_CLAVE = "SISTEMA_CLAVE"; 
+  // --- 1. CONFIGURACIÓN DE IDENTIDAD Y CONSTANTES ---
+  const ETIQUETA_ENTIDAD: string = "desvío"; 
+  const ARTICULO_ENTIDAD: string = "el";
+  const NOMBRE_ITEM_CLAVE: string = "SISTEMA_CLAVE"; 
 
-  const wsInput = workbook.getWorksheet(inputSheetName);
-  const wsMaestros = workbook.getWorksheet(mastersSheetName);
+  const hojaEntradaWS: ExcelScript.Worksheet = workbook.getWorksheet(nombreHojaEntrada);
+  const hojaMaestrosWS: ExcelScript.Worksheet = workbook.getWorksheet(nombreHojaMaestros);
   
-  let clave = "";
-  let mensajeLog = "";
+  let claveSeguridadSistema: string = "";
+  let registroMensajeLog: string = "";
 
-  // I. VALIDACIÓN DE ENTORNO
-  if (!wsInput || !wsMaestros) {
-    mensajeLog = `⛔ Error: Faltan hojas críticas (${inputSheetName} o ${mastersSheetName}).`;
+  // --- I. VALIDACIÓN DE ENTORNO Y SEGURIDAD ---
+  if (!hojaEntradaWS || !hojaMaestrosWS) {
+    registroMensajeLog = `⛔ Error de Infraestructura: Faltan hojas críticas (${nombreHojaEntrada} o ${nombreHojaMaestros}).`;
   } else {
-    const rangoClave = workbook.getNamedItem(NOMBRE_RANGO_CLAVE)?.getRange();
-    if (rangoClave) {
-      clave = rangoClave.getText();
-      if (clave === "") mensajeLog = "⚠️ Advertencia: La clave de sistema está vacía.";
+    const rangoItemClave = workbook.getNamedItem(NOMBRE_ITEM_CLAVE)?.getRange();
+    if (rangoItemClave) {
+      claveSeguridadSistema = rangoItemClave.getText();
+      if (claveSeguridadSistema === "") {
+        registroMensajeLog = "⚠️ Advertencia: El protocolo de seguridad detectó una clave de sistema vacía.";
+      }
     } else {
-      mensajeLog = `⛔ Error: No se encontró el rango '${NOMBRE_RANGO_CLAVE}'.`;
+      registroMensajeLog = `⛔ Error de Seguridad: No se encontró el ítem de protección '${NOMBRE_ITEM_CLAVE}'.`;
     }
   }
   
-  // II. EJECUCIÓN PRINCIPAL
-  if (wsInput && clave !== "") {
+  // --- II. EJECUCIÓN DEL PROTOCOLO DE CONFIGURACIÓN ---
+  if (hojaEntradaWS && claveSeguridadSistema !== "") {
     try {
-      // A) Reset de Seguridad: Bloqueamos TODO primero
-      wsInput.getProtection().unprotect(clave);
-      wsInput.getRange().getFormat().getProtection().setLocked(true); 
+      // A) RESET DE SEGURIDAD: Bloqueo integral de la superficie de la hoja
+      hojaEntradaWS.getProtection().unprotect(claveSeguridadSistema);
+      hojaEntradaWS.getRange().getFormat().getProtection().setLocked(true); 
 
-      // B) Lógica de Desbloqueo Selectivo
-      // procesarColumna(LetraEtiqueta, IndiceColumnaInput, FilasAIgnorar)
-      let total = procesarColumna("B", 2, 1); // Desbloquea columna C
-      total += procesarColumna("E", 5, 4);    // Desbloquea columna F (si hubiera)
+      // B) LÓGICA DE HABILITACIÓN SELECTIVA (Inputs)
+      // Definimos qué columnas de etiquetas (B, E) habilitan qué columnas de datos (C, F)
+      // auxiliarConfigurarDesbloqueoPorColumna(LetraColumnaEtiqueta, IndiceColumnaDatos, NumeroFilasEncabezado)
+      let contadorCamposHabilitados: number = 0;
+      
+      // Procesar Bloque Primario (Columna B -> C)
+      contadorCamposHabilitados += auxiliarConfigurarDesbloqueoPorColumna("B", 2, 1); 
+      
+      // Procesar Bloque Secundario (Columna E -> F) si existiera etiquetas en E
+      contadorCamposHabilitados += auxiliarConfigurarDesbloqueoPorColumna("E", 5, 4);
 
-      mensajeLog = total > 0 
-        ? `✅ Configuración de ${ENT} exitosa. ${total} campos habilitados para entrada.` 
-        : `⚠️ Proceso finalizado sin campos habilitados en ${inputSheetName}.`;
+      registroMensajeLog = contadorCamposHabilitados > 0 
+        ? `✅ Configuración de ${ETIQUETA_ENTIDAD} exitosa. ${contadorCamposHabilitados} campos habilitados para entrada.` 
+        : `⚠️ Proceso finalizado sin detectar campos para habilitar en ${nombreHojaEntrada}.`;
 
-    } catch (e) {
-      mensajeLog = `❌ Error de Ejecución en ${ENT}: ${(e as Error).message}`;
+    } catch (errorEjecucion) {
+      registroMensajeLog = `❌ Error de Ejecución en ${ETIQUETA_ENTIDAD}: ${(errorEjecucion as Error).message}`;
     } finally {
-      // Cierre estandarizado alineado con el resto del sistema
-      safeProtect(wsInput, `Input ${ENT.charAt(0).toUpperCase() + ENT.slice(1)}`);
+      // C) CIERRE ESTANDARIZADO DE SEGURIDAD
+      // Re-protección de la hoja con permisos de navegación (Autofiltros)
+      auxiliarEjecutarProteccionSegura(hojaEntradaWS, `Interfaz ${ETIQUETA_ENTIDAD}`);
     }
   }
 
-  console.log(mensajeLog);
+  // Notificación del resultado en la consola de administración
+  console.log(registroMensajeLog);
 
-  // --- HELPERS INTERNOS ---
+  // --- FUNCIONES AUXILIARES (HELPERS) ---
 
-  function procesarColumna(letraEtiqueta: string, colInputIdx: number, filasIgnorar: number): number {
-    let count = 0;
-    const usedRange = wsInput!.getRange(`${letraEtiqueta}:${letraEtiqueta}`).getUsedRange();
+  /**
+   * Recorre una columna de etiquetas y desbloquea la celda adyacente si contiene texto descriptivo.
+   */
+  function auxiliarConfigurarDesbloqueoPorColumna(letraColumnaEtiquetas: string, indiceColumnaDatos: number, numeroFilasEncabezado: number): number {
+    let camposContabilizados = 0;
+    const rangoEtiquetasUsadas = hojaEntradaWS!.getRange(`${letraColumnaEtiquetas}:${letraColumnaEtiquetas}`).getUsedRange();
     
-    if (usedRange) {
-      const valores = usedRange.getValues();
-      const filaInicial = usedRange.getRowIndex();
+    if (rangoEtiquetasUsadas) {
+      const matrizEtiquetas = rangoEtiquetasUsadas.getValues();
+      const indiceFilaInicial = rangoEtiquetasUsadas.getRowIndex();
 
-      valores.forEach((fila, i) => {
-        const etiqueta = String(fila[0]).trim();
-        const filaReal = filaInicial + i;
+      matrizEtiquetas.forEach((fila, i) => {
+        const valorEtiqueta = String(fila[0]).trim();
+        const indiceFilaReal = indiceFilaInicial + i;
 
-        // Si la etiqueta no está vacía y no es una fila de encabezado a ignorar
-        if (etiqueta !== "" && filaReal > filasIgnorar) { 
-          wsInput!.getRangeByIndexes(filaReal, colInputIdx, 1, 1)
-                   .getFormat().getProtection().setLocked(false);
-          count++;
+        // Si la celda tiene una etiqueta y no pertenece al área de encabezados a ignorar
+        if (valorEtiqueta !== "" && indiceFilaReal > numeroFilasEncabezado) { 
+          // Desbloqueamos la celda de la derecha (Columna de Input)
+          hojaEntradaWS!.getRangeByIndexes(indiceFilaReal, indiceColumnaDatos, 1, 1)
+                       .getFormat().getProtection().setLocked(false);
+          camposContabilizados++;
         }
       });
     }
-    return count;
+    return camposContabilizados;
   }
 
-  function safeProtect(ws: ExcelScript.Worksheet | undefined, name: string) {
-    if (ws) {
+  /**
+   * Asegura el cierre de la hoja permitiendo funcionalidades básicas de usuario.
+   */
+  function auxiliarEjecutarProteccionSegura(hojaAProteger: ExcelScript.Worksheet | undefined, nombreReferencia: string) {
+    if (hojaAProteger) {
       try {
-        // Alineado con el resto de los scripts: permitimos Autofiltros
-        ws.getProtection().protect({ allowAutoFilter: true }, clave);
+        // Mantenemos consistencia con el resto de scripts: permitimos Autofiltros
+        hojaAProteger.getProtection().protect({ allowAutoFilter: true }, claveSeguridadSistema);
       } catch (e) {
-        console.log(`ℹ️ Aviso Cierre (${name}): Hoja ya protegida o error menor.`);
+        console.log(`ℹ️ Protocolo de Cierre (${nombreReferencia}): Estado de protección verificado o error menor.`);
       }
     }
   }

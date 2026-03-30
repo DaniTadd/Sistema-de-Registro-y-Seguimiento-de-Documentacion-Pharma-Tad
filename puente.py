@@ -3,104 +3,113 @@ import os
 import time
 from typing import Dict, Any, List
 
-# Importación de la configuración local.
-# MOTIVO DE SEGURIDAD: Esto permite que 'config.py' tenga los datos reales mientras que
-# el script (público) sólo hace referencia a la variable, sin mostrar el valor.
+/**
+ * PROTOCOLO DE CONFIGURACIÓN DE SEGURIDAD
+ * MOTIVO: Disociar las rutas físicas del código fuente para permitir la portabilidad 
+ * y proteger la estructura de carpetas local.
+ */
 try:
     from config import RUTA_ONEDRIVE_REAL
 except ImportError:
+    # Estado de contingencia si el archivo de configuración no está presente
     RUTA_ONEDRIVE_REAL = "RUTA_NO_CONFIGURADA"
 
-def sincronizar_un_archivo(ruta_ts: str, ruta_osts: str) -> bool:
+def ejecutar_sincronizacion_par_archivos(ruta_fuente_ts: str, ruta_contenedor_osts: str) -> bool:
     """
-    Compara y sincroniza un solo par de archivos (.ts -> .osts).
-    Retorna True si hubo cambios, False si no.
+    Compara y sincroniza un par de archivos (.ts -> .osts).
+    Garantiza que el 'body' del JSON en OneDrive coincida con el código en el Repositorio.
+    Retorna True si se realizó una actualización física del archivo.
     """
-    hubo_cambios: bool = False
+    estado_cambio_detectado: bool = False
 
     try:
-        # A. LEER CÓDIGO FUENTE (.ts)
-        with open(ruta_ts, 'r', encoding='utf-8') as f_ts:
-            codigo_nuevo = f_ts.read()
+        # A. EXTRACCIÓN DE CÓDIGO FUENTE (.ts)
+        # Se lee el archivo TypeScript que contiene la lógica refactorizada.
+        with open(ruta_fuente_ts, 'r', encoding='utf-8') as archivo_fuente:
+            contenido_codigo_nuevo = archivo_fuente.read()
         
-        # B. LEER CONTENEDOR DESTINO (.osts)
-        data_json: Dict[str, Any] = {}
-        with open(ruta_osts, 'r', encoding='utf-8') as f_osts:
-            data_json = json.load(f_osts)
+        # B. LECTURA DE CONTENEDOR DESTINO (.osts)
+        # Los Office Scripts son archivos JSON. Extraemos el objeto completo.
+        estructura_json_osts: Dict[str, Any] = {}
+        with open(ruta_contenedor_osts, 'r', encoding='utf-8') as archivo_destino:
+            estructura_json_osts = json.load(archivo_destino)
 
-        # C. COMPARAR E INYECTAR
-        codigo_viejo = str(data_json.get('body', ''))
-        hubo_cambios = (codigo_nuevo != codigo_viejo)
+        # C. VERIFICACIÓN DE INTEGRIDAD Y COMPARACIÓN
+        # Comparamos el código actual en OneDrive contra el nuevo código del Repo.
+        contenido_codigo_existente = str(estructura_json_osts.get('body', ''))
+        estado_cambio_detectado = (contenido_codigo_nuevo != contenido_codigo_existente)
 
-        # D. INYECTAR Y GUARDAR (Solo si es necesario).
-        if hubo_cambios:
-            data_json['body'] = codigo_nuevo
-            with open(ruta_osts, 'w', encoding='utf-8') as f_osts:
-                json.dump(data_json, f_osts, ensure_ascii=False, indent=4)
+        # D. INYECCIÓN DE CÓDIGO Y PERSISTENCIA
+        # Solo se sobreescribe el archivo si se detecta una diferencia (Optimización de Sync).
+        if estado_cambio_detectado:
+            estructura_json_osts['body'] = contenido_codigo_nuevo
+            with open(ruta_contenedor_osts, 'w', encoding='utf-8') as archivo_destino:
+                json.dump(estructura_json_osts, archivo_destino, ensure_ascii=False, indent=4)
 
-
-    except Exception as e:
-        print(f"   ❌ ERROR TÉCNICO: {str(e)}")
-        raise e
+    except Exception as excepcion_tecnica:
+        print(f"    ❌ ERROR DE PROTOCOLO: {str(excepcion_tecnica)}")
+        raise excepcion_tecnica
     
-    # Se devuelve una sola vez el estado calculado.
-    return hubo_cambios
+    return estado_cambio_detectado
 
 def main() -> None:
-    # 1. SETUP DE RUTAS
-    # MOTIVO DE SEGURIDAD: Uso de os.getcwd() para que el script se adapte a quien lo use
-    # sin 'hardcodear' la estructura de carpetas en el código fuente.
-    ruta_repo = os.getcwd()
-    ruta_onedrive = RUTA_ONEDRIVE_REAL
-    nombre_carpeta_repo = os.path.basename(ruta_repo)
+    """
+    Punto de entrada principal para el proceso de sincronización masiva.
+    """
+    # 1. SETUP Y VALIDACIÓN DE ENTORNO
+    # Determinamos las rutas basándonos en el contexto de ejecución actual.
+    directorio_raiz_repositorio = os.getcwd()
+    directorio_destino_onedrive = RUTA_ONEDRIVE_REAL
+    nombre_identificador_repo = os.path.basename(directorio_raiz_repositorio)
 
-    print(f"🛠️  Origen (Repo):     .../{nombre_carpeta_repo}")
-    print(f"☁️  Destino (OneDrive): [Ruta oculta configurada en config.py]")
+    print(f"🛠️  ORIGEN (Repositorio):  .../{nombre_identificador_repo}")
+    print(f"☁️  DESTINO (OneDrive):     [Ruta Protegida en config.py]")
     print("-" * 60)
 
-    if ruta_onedrive != "RUTA_NO_CONFIGURADA" and os.path.exists(ruta_onedrive):
-        archivos_modificados: int = 0
-        errores: int = 0
-        archivos_repo: List[str] = os.listdir(ruta_repo)
+    # Verificamos que la ruta de destino sea válida y accesible
+    if directorio_destino_onedrive != "RUTA_NO_CONFIGURADA" and os.path.exists(directorio_destino_onedrive):
+        contador_archivos_actualizados: int = 0
+        contador_errores_encontrados: int = 0
+        lista_archivos_en_repo: List[str] = os.listdir(directorio_raiz_repositorio)
 
-        # 2. BUCLE PRINCIPAL
+        # 2. BUCLE DE PROCESAMIENTO SECUENCIAL
+        # Recorremos el repositorio buscando archivos TypeScript candidatos a sincronizar.
+        for nombre_archivo in lista_archivos_en_repo:
+            # Filtramos solo archivos .ts (excluyendo archivos de definición .d.ts)
+            if nombre_archivo.endswith(".ts") and not nombre_archivo.endswith(".d.ts"):
+                nombre_base_script: str = nombre_archivo[:-3]
+                nombre_archivo_osts: str = nombre_base_script + ".osts"
 
-        for archivo in archivos_repo:
-            if archivo.endswith(".ts") and not archivo.endswith(".d.ts"):
-                nombre_base: str = archivo[:-3]
-                nombre_osts: str = nombre_base + ".osts"
+                # Construcción de rutas absolutas para el par de archivos
+                ruta_completa_origen: str = os.path.join(directorio_raiz_repositorio, nombre_archivo)
+                ruta_completa_destino = os.path.join(directorio_destino_onedrive, nombre_archivo_osts)
 
-                # Rutas absolutas
-                ruta_origen: str = os.path.join(ruta_repo, archivo)
-                ruta_destino = os.path.join(ruta_onedrive, nombre_osts)
-
-                # verificación de existencia
-                if os.path.exists(ruta_destino):
-                    print(f"🔁 Verificando: {nombre_base} ...")
+                # Verificación de existencia en el destino antes de proceder
+                if os.path.exists(ruta_completa_destino):
+                    print(f"🔁 Verificando Sincronía: {nombre_base_script} ...")
                     try:
-                        cambio_realizado = sincronizar_un_archivo(ruta_origen, ruta_destino)
-                        if cambio_realizado:
-                            print(f"   ✅ ACTUALIZADO -> OneDrive ha recibido el nuevo código.")
-                            archivos_modificados += 1
+                        fue_actualizado = ejecutar_sincronizacion_par_archivos(ruta_completa_origen, ruta_completa_destino)
+                        if fue_actualizado:
+                            print(f"    ✅ STATUS: ACTUALIZADO -> El contenedor .osts ha sido refrescado.")
+                            contador_archivos_actualizados += 1
                         else:
-                            print(f"   zzz Sin cambios.")
+                            print(f"    💤 STATUS: SINCRONIZADO -> No se requieren cambios.")
                     except Exception:
-                        errores +=1
+                        contador_errores_encontrados += 1
                 else:
-                    # Si existe el .ts pero no el .osts en OneDrive, avisamos.
-                    print(f"   ⚠️ OMITIDO: No existe '{nombre_osts}' en la carpeta de OneDrive.")
+                    # Alerta de inconsistencia: Existe el código pero no el contenedor en OneDrive
+                    print(f"    ⚠️  OMITIDO: No se halló '{nombre_archivo_osts}' en el destino.")
 
-        # 3. RESUMEN
+        # 3. RESUMEN FINAL DE OPERACIÓN (LOG)
         print("-" * 60)
-        print(f"📊 Resumen: {archivos_modificados} archivos actualizados | {errores} errores.")
-
-
+        print(f"📊 RESUMEN: {contador_archivos_actualizados} actualizados | {contador_errores_encontrados} errores.")
 
     else:
-        # SI FALLA LA CONFIGURACIÓN INICIAL
-        print("⚠️ ALERTA: No se encuentra la carpeta de OneDrive o falta el archivo config.py")
-        print("    Crea un archivo 'config.py' con la variable RUTA_ONEDRIVE_REAL")
+        # FALLA DE SEGURIDAD O CONFIGURACIÓN
+        print("⚠️ ALERTA CRÍTICA: Fallo en la conexión con OneDrive o falta 'config.py'.")
+        print("    Acción Requerida: Verifique que RUTA_ONEDRIVE_REAL sea correcta.")
 
 if __name__ == "__main__":
     main()
+    # Pausa de cortesía para lectura de logs en consola
     time.sleep(3)

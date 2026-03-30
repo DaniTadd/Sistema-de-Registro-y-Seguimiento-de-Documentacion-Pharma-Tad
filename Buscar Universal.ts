@@ -1,172 +1,191 @@
+/**
+ * SCRIPT: ENTIDAD_BUSCAR_UNIVERSAL
+ * OBJETIVO: Localizar un registro por ID y cargar sus datos en el formulario de entrada.
+ * GARANTÍA: Asegura que el usuario visualice la información más reciente de la base de datos antes de cualquier edición.
+ */
 function main(
   workbook: ExcelScript.Workbook,
-  entidad: string,      // Viene de PA: "DESVIO" o "CAPA"
-  idDesdePanel: string, // El ID que el usuario escribe en el panel
-  userEmail: string     // Para auditoría si fuera necesario
+  entidadParam: string,           // Origen Power Automate: "DESVIO" o "CAPA"
+  idDesdePanel: string,           // ID capturado en la interfaz de usuario
+  userEmail: string               // Usuario que realiza la consulta
 ) {
-  // --- MAPEADOR DE CONFIGURACIÓN (El Cerebro) ---
-  const entidadLimpia = String(entidad).replace(/[\[\]"]/g, "").toUpperCase().trim();
-  const MAPPING: { [key: string]: { tab: string, sheet: string, ent: string, art: string, gen: string } } = {
-    "DESVIO": { tab: "TablaDesvios", sheet: "INP_DES", ent: "desvío", art: "el", gen: "o" },
-    "CAPA": { tab: "TablaCapas", sheet: "INP_CAPAS", ent: "CAPA", art: "la", gen: "a" }
+  // --- 1. NORMALIZACIÓN DE PARÁMETROS ---
+  const nombreEntidadNormalizado = String(entidadParam).replace(/[\[\]"]/g, "").toUpperCase().trim();
+
+  // --- 2. DICCIONARIO DE CONFIGURACIÓN DE ENTIDADES (Metadata) ---
+  const CONFIGURACION_ENTIDADES: { [key: string]: { tabla: string, hojaInput: string, etiqueta: string, articulo: string, genero: string } } = {
+    "DESVIO": { tabla: "TablaDesvios", hojaInput: "INP_DES", etiqueta: "desvío", articulo: "el", genero: "o" },
+    "CAPA": { tabla: "TablaCapas", hojaInput: "INP_CAPAS", etiqueta: "CAPA", articulo: "la", genero: "a" }
   };
 
-  const config = MAPPING[entidadLimpia.toUpperCase()];
-  if (!config) throw new Error(`La entidad '${entidad}' no está configurada en el mapeador.`);
+  const configuracionActiva = CONFIGURACION_ENTIDADES[nombreEntidadNormalizado];
+  if (!configuracionActiva) throw new Error(`La entidad '${entidadParam}' no está configurada.`);
 
-  // --- CONFIGURACIÓN DE IDENTIDAD DINÁMICA ---
-  const ENT = config.ent;
-  const ART = config.art;
-  const GEN = config.gen;
-  const targetTableName = config.tab;
-  const inputSheetName = config.sheet;
+  // Asignación de variables descriptivas
+  const etiquetaEntidad = configuracionActiva.etiqueta;
+  const articuloEntidad = configuracionActiva.articulo;
+  const generoEntidad = configuracionActiva.genero;
+  const nombreTablaPrincipal = configuracionActiva.tabla;
+  const nombreHojaEntrada = configuracionActiva.hojaInput;
 
-  type CellValue = string | number | boolean;
-  interface ActionResult { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
-  interface UXMap { [key: string]: { bg: string; txt: string } }
+  // Definición de Tipos e Interfaces
+  type ValorCelda = string | number | boolean;
+  interface ResultadoAccion { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
+  interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
 
-  const actionResult: ActionResult = { success: true, message: "Inicio", logLevel: 'INFO' };
-  const UX_COLORS: UXMap = {
-    EXITO: { bg: "#D4EDDA", txt: "#155724" },
-    ERROR: { bg: "#F8D7DA", txt: "#721C24" },
-    WARN: { bg: "#FFF3CD", txt: "#856404" },
-    INFO: { bg: "#E2E3E5", txt: "#383D41" }
+  const resultadoOperacion: ResultadoAccion = { success: true, message: "Inicio de búsqueda", logLevel: 'INFO' };
+  const PALETA_COLORES_UX: MapaColoresUX = {
+    EXITO: { fondo: "#D4EDDA", texto: "#155724" },
+    ERROR: { fondo: "#F8D7DA", texto: "#721C24" },
+    WARN: { fondo: "#FFF3CD", texto: "#856404" },
+    INFO: { fondo: "#E2E3E5", texto: "#383D41" }
   };
 
-  let inputWS: ExcelScript.Worksheet | undefined,
-    dbTab: ExcelScript.Table | undefined,
-    sysKey: ExcelScript.NamedItem | undefined;
-  let pass: string = "";
+  let hojaEntradaWS: ExcelScript.Worksheet | undefined,
+    tablaBaseDatos: ExcelScript.Table | undefined,
+    itemClaveSistema: ExcelScript.NamedItem | undefined;
+  let claveProteccion: string = "";
 
   try {
-    // I. INFRAESTRUCTURA
-    inputWS = workbook.getWorksheet(inputSheetName);
-    sysKey = workbook.getNamedItem("SISTEMA_CLAVE");
+    // --- I. VALIDACIÓN DE INFRAESTRUCTURA ---
+    hojaEntradaWS = workbook.getWorksheet(nombreHojaEntrada);
+    itemClaveSistema = workbook.getNamedItem("SISTEMA_CLAVE");
 
-    if (!inputWS) throw new Error(`Error: No se halló la hoja '${inputSheetName}'.`);
-    if (!sysKey) throw new Error("Error: No se halló 'SISTEMA_CLAVE'.");
+    if (!hojaEntradaWS) throw new Error(`Infraestructura: No se halló la hoja '${nombreHojaEntrada}'.`);
+    if (!itemClaveSistema) throw new Error("Infraestructura: No se halló 'SISTEMA_CLAVE'.");
 
-    pass = sysKey.getRange().getText();
-    dbTab = workbook.getTable(targetTableName);
+    claveProteccion = itemClaveSistema.getRange().getText();
+    tablaBaseDatos = workbook.getTable(nombreTablaPrincipal);
 
-    if (!dbTab) throw new Error(`Error: La tabla '${targetTableName}' no existe.`);
+    if (!tablaBaseDatos) throw new Error(`Infraestructura: La tabla '${nombreTablaPrincipal}' no existe.`);
 
-    const filter = dbTab.getAutoFilter();
-    if (filter) filter.clearCriteria();
+    // Limpieza de filtros para asegurar que la búsqueda recorra todos los registros
+    const autoFiltro = tablaBaseDatos.getAutoFilter();
+    if (autoFiltro) autoFiltro.clearCriteria();
 
-    // II. CAPTURA DEL ID A BUSCAR (Prioridad Panel)
-    inputWS.getProtection().unprotect(pass);
-    const searchId = idDesdePanel.trim().toUpperCase();
+    // --- II. CAPTURA DEL IDENTIFICADOR A LOCALIZAR ---
+    hojaEntradaWS.getProtection().unprotect(claveProteccion);
+    const idABuscar = idDesdePanel.trim().toUpperCase();
 
-    if (!searchId || searchId === "") {
-      actionResult.success = false;
-      actionResult.message = `Se necesita un ID de ${ENT} en el panel para continuar.`;
-      actionResult.logLevel = 'WARN';
+    if (!idABuscar || idABuscar === "") {
+      resultadoOperacion.success = false;
+      resultadoOperacion.message = `Se requiere ingresar un ID de ${etiquetaEntidad} en el panel para buscar.`;
+      resultadoOperacion.logLevel = 'WARN';
     } else {
       
-      const labelRange = inputWS.getRange("B:B").getUsedRange();
-      const headers = dbTab.getHeaderRowRange().getValues()[0].map(h => String(h).toUpperCase().replace(/\s/g, "_"));
-      const pkName = headers[0];
+      const rangoEtiquetasFormulario = hojaEntradaWS.getRange("B:B").getUsedRange();
+      const encabezadosTabla = tablaBaseDatos.getHeaderRowRange().getValues()[0].map(h => String(h).toUpperCase().replace(/\s/g, "_"));
+      const nombreCampoPrimario = encabezadosTabla[0];
 
-      if (labelRange) {
-        const labels = labelRange.getValues() as CellValue[][];
-        const offset = labelRange.getRowIndex();
-        const coords: { [key: string]: number } = {};
+      if (rangoEtiquetasFormulario) {
+        const matrizEtiquetas = rangoEtiquetasFormulario.getValues() as ValorCelda[][];
+        const indiceFilaInicialForm = rangoEtiquetasFormulario.getRowIndex();
+        const mapaCoordenadasFormulario: { [key: string]: number } = {};
 
-        // Mapeamos posiciones del formulario
-        labels.forEach((row, i) => {
-          const clean = String(row[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
-          if (clean !== "") coords[clean] = i + offset;
+        // Mapeamos las posiciones (filas) de cada campo en el formulario de Excel
+        matrizEtiquetas.forEach((fila, i) => {
+          const etiquetaLimpia = String(fila[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
+          if (etiquetaLimpia !== "") {
+            mapaCoordenadasFormulario[etiquetaLimpia] = i + indiceFilaInicialForm;
+          }
         });
 
-        // III. PROCESO DE BÚSQUEDA
-        const vals = dbTab.getRangeBetweenHeaderAndTotal().getValues();
-        const texts = dbTab.getRangeBetweenHeaderAndTotal().getTexts();
-        let rIdx = -1, c = 0, found = false;
+        // --- III. PROCESO DE BÚSQUEDA EN BASE DE DATOS ---
+        const matrizValoresDB = tablaBaseDatos.getRangeBetweenHeaderAndTotal().getValues();
+        const matrizTextosDB = tablaBaseDatos.getRangeBetweenHeaderAndTotal().getTexts();
+        let indiceFilaEncontrada = -1;
+        let contadorFilas = 0;
+        let registroEncontrado = false;
 
-        while (c < vals.length && !found) {
-          if (String(vals[c][headers.indexOf(pkName)]) === searchId) {
-            rIdx = c;
-            found = true;
+        // Búsqueda secuencial por coincidencia de ID
+        while (contadorFilas < matrizValoresDB.length && !registroEncontrado) {
+          if (String(matrizValoresDB[contadorFilas][encabezadosTabla.indexOf(nombreCampoPrimario)]) === idABuscar) {
+            indiceFilaEncontrada = contadorFilas;
+            registroEncontrado = true;
           }
-          c++;
+          contadorFilas++;
         }
 
-        if (found) {
-          // 1. Limpiamos el formulario antes de cargar
-          labels.forEach((row, i) => {
-            const clean = String(row[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
-            if (clean !== "") {
-              inputWS!.getRangeByIndexes(i + offset, 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
+        if (registroEncontrado) {
+          // --- 1. LIMPIEZA PREVENTIVA DEL FORMULARIO ---
+          matrizEtiquetas.forEach((fila, i) => {
+            const campoLimpio = String(fila[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
+            if (campoLimpio !== "") {
+              hojaEntradaWS!.getRangeByIndexes(i + indiceFilaInicialForm, 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
             }
           });
 
-          // 2. Poblamos el formulario con los datos de la tabla
-          headers.forEach((h, col) => {
-            if (coords[h] !== undefined) {
-              const range = inputWS!.getRangeByIndexes(coords[h], 2, 1, 1);
+          // --- 2. POBLACIÓN DEL FORMULARIO CON DATOS DE ORIGEN ---
+          encabezadosTabla.forEach((nombreEncabezado, indiceColumna) => {
+            if (mapaCoordenadasFormulario[nombreEncabezado] !== undefined) {
+              const rangoDestino = hojaEntradaWS!.getRangeByIndexes(mapaCoordenadasFormulario[nombreEncabezado], 2, 1, 1);
 
-              if (h.includes("FECHA")) {
-                range.setValue(vals[rIdx][col]); 
-                range.setNumberFormatLocal("dd/mm/aaaa");
+              // Tratamiento especial para campos de fecha (preservar formato numérico de Excel)
+              if (nombreEncabezado.includes("FECHA")) {
+                rangoDestino.setValue(matrizValoresDB[indiceFilaEncontrada][indiceColumna]); 
+                rangoDestino.setNumberFormatLocal("dd/mm/aaaa");
               } else {
-                range.setValue(texts[rIdx][col]);
+                // Para el resto de campos, usamos el texto formateado de la tabla
+                rangoDestino.setValue(matrizTextosDB[indiceFilaEncontrada][indiceColumna]);
               }
             }
           });
 
-          // 3. Forzamos que el ID del panel quede escrito en el formulario por seguridad visual
-          if (coords[pkName] !== undefined) {
-            inputWS!.getRangeByIndexes(coords[pkName], 2, 1, 1).setValue(searchId);
+          // --- 3. REFUERZO DE IDENTIDAD (Seguridad Visual) ---
+          // Aseguramos que el campo ID del formulario muestre exactamente el ID buscado
+          if (mapaCoordenadasFormulario[nombreCampoPrimario] !== undefined) {
+            hojaEntradaWS!.getRangeByIndexes(mapaCoordenadasFormulario[nombreCampoPrimario], 2, 1, 1).setValue(idABuscar);
           }
 
-          actionResult.message = `✅ ${ENT.charAt(0).toUpperCase() + ENT.slice(1)} #${searchId} cargad${GEN} con éxito.`;
-          actionResult.logLevel = 'EXITO';
+          resultadoOperacion.message = `✅ ${etiquetaEntidad.charAt(0).toUpperCase() + etiquetaEntidad.slice(1)} #${idABuscar} cargad${generoEntidad} con éxito.`;
+          resultadoOperacion.logLevel = 'EXITO';
 
         } else {
-          actionResult.success = false;
-          actionResult.message = `${ENT.charAt(0).toUpperCase() + ENT.slice(1)} #${searchId} no existe en la base de datos.`;
-          actionResult.logLevel = 'ERROR';
+          resultadoOperacion.success = false;
+          resultadoOperacion.message = `${articuloEntidad.charAt(0).toUpperCase() + articuloEntidad.slice(1)} ${etiquetaEntidad} #${idABuscar} no existe en la base de datos.`;
+          resultadoOperacion.logLevel = 'ERROR';
         }
       }
     }
-  } catch (err) {
-    actionResult.success = false;
-    actionResult.message = `❌ Sistema: ${String(err)}`;
-    actionResult.logLevel = 'ERROR';
+  } catch (excepcionSistema) {
+    resultadoOperacion.success = false;
+    resultadoOperacion.message = `❌ Error de Sistema: ${String(excepcionSistema)}`;
+    resultadoOperacion.logLevel = 'ERROR';
   } finally {
-    if (sysKey && inputWS) {
-      const p = sysKey.getRange().getText();
-      updateUI(inputWS, actionResult, UX_COLORS, p);
-      protect(inputWS, p, actionResult);
+    // --- IX. PROTOCOLO DE CIERRE Y SEGURIDAD ---
+    if (itemClaveSistema && hojaEntradaWS) {
+      const passFinal = itemClaveSistema.getRange().getText();
+      auxiliarActualizarInterfazUX(hojaEntradaWS, resultadoOperacion, PALETA_COLORES_UX, passFinal);
+      auxiliarProtegerHoja(hojaEntradaWS, passFinal, resultadoOperacion);
     }
   }
 
-  // --- FUNCIONES HELPER (SIN CAMBIOS) ---
-  function updateUI(ws: ExcelScript.Worksheet, res: ActionResult, colors: UXMap, p: string) {
-    const item = ws.getNamedItem("UI_FEEDBACK");
-    if (!item) return; 
-    const r = item.getRange();
-    const c = colors[res.logLevel];
-    const d = new Date();
-    const timeStr = d.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
-    const heartbeat = (d.getSeconds() % 2 === 0) ? "⚡" : "✨";
+  // --- FUNCIONES AUXILIARES (HELPERS) ---
+
+  function auxiliarActualizarInterfazUX(hoja: ExcelScript.Worksheet, res: ResultadoAccion, colores: MapaColoresUX, pass: string) {
+    const itemFeedback = hoja.getNamedItem("UI_FEEDBACK");
+    if (!itemFeedback) return; 
+    const rangoFeedback = itemFeedback.getRange();
+    const estiloUX = colores[res.logLevel];
+    const fechaHora = new Date();
+    const marcaTiempo = fechaHora.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+    const iconoLatido = (fechaHora.getSeconds() % 2 === 0) ? "⚡" : "✨";
     try {
-      ws.getProtection().unprotect(p);
-      r.setValue(`[${timeStr}] ${heartbeat} ${res.message}`);
-      r.getFormat().getFill().setColor(c.bg);
-      r.getFormat().getFont().setColor(c.txt);
-      r.getFormat().getFont().setBold(true);
-      r.getFormat().setWrapText(true);
+      hoja.getProtection().unprotect(pass);
+      rangoFeedback.setValue(`[${marcaTiempo}] ${iconoLatido} ${res.message}`);
+      rangoFeedback.getFormat().getFill().setColor(estiloUX.fondo);
+      rangoFeedback.getFormat().getFont().setColor(estiloUX.texto);
+      rangoFeedback.getFormat().getFont().setBold(true);
+      rangoFeedback.getFormat().setWrapText(true);
     } catch (e) {
-      try { r.setValue(res.message); } catch (e2) {}
+      try { rangoFeedback.setValue(res.message); } catch (e2) {}
     }
   }
 
-  function protect(ws: ExcelScript.Worksheet | undefined, p: string, res: ActionResult) {
-    if (ws) {
-      try { ws.getProtection().protect({ allowAutoFilter: true }, p); }
-      catch (e) { res.message += ` [⚠️ Seguridad: ${ws.getName()}]`; }
+  function auxiliarProtegerHoja(hoja: ExcelScript.Worksheet | undefined, pass: string, res: ResultadoAccion) {
+    if (hoja) {
+      try { hoja.getProtection().protect({ allowAutoFilter: true }, pass); }
+      catch (e) { res.message += ` [⚠️ Seguridad: ${hoja.getName()}]`; }
     }
   }
 }
