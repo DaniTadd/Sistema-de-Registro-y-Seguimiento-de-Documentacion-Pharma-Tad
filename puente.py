@@ -3,11 +3,12 @@ import os
 import time
 from typing import Dict, Any, List
 
-/**
+"""
  * PROTOCOLO DE CONFIGURACIÓN DE SEGURIDAD
  * MOTIVO: Disociar las rutas físicas del código fuente para permitir la portabilidad 
  * y proteger la estructura de carpetas local.
- */
+"""
+
 try:
     from config import RUTA_ONEDRIVE_REAL
 except ImportError:
