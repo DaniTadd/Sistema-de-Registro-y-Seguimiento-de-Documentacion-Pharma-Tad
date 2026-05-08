@@ -65,26 +65,7 @@ function main(
   // Variable para capturar si hay error
   let mensajeErrorIntegridad = "";
 
-  if (hashBBDD_Maestro !== "0" && hashVivoBBDD !== hashBBDD_Maestro) {
-    mensajeErrorIntegridad = `ERROR: Integridad violada en ${nombreTablaPrincipal}.`;
-  } else if (hashHistorial_Maestro !== "0" && hashVivoHistorial !== hashHistorial_Maestro) {
-    mensajeErrorIntegridad = `ERROR: Integridad violada en Historial.`;
-  }
 
-  // SI HAY ERROR, INFORMAMOS AL USUARIO EN LA PLANILLA ANTES DE ABORTAR
-  if (mensajeErrorIntegridad !== "") {
-    // 1. Buscamos la hoja de entrada y el rango de estado
-    const hojaInput = workbook.getWorksheet(nombreHojaEntrada);
-    const celdaEstado = hojaInput.getNamedItem("UI_FEEDBACK");
-
-    // 2. Aplicamos el formato de la PALETA_COLORES_UX que ya tenés
-    celdaEstado.setValue(mensajeErrorIntegridad + " Contacte al Administrador.");
-    celdaEstado.getFormat().getFill().setColor(PALETA_COLORES_UX.ERROR.fondo);
-    celdaEstado.getFormat().getFont().setColor(PALETA_COLORES_UX.ERROR.texto);
-
-    // 3. Ahora sí, lanzamos el error para que Power Automate se entere
-    throw new Error(mensajeErrorIntegridad);
-  }
 
   try {
     // --- I. VALIDACIÓN DE INFRAESTRUCTURA ---
@@ -95,7 +76,7 @@ function main(
     if (!hojaEntradaWS) throw new Error(`Infraestructura: No se halló la hoja '${nombreHojaEntrada}'.`);
     if (!hojaMaestrosWS) throw new Error("Infraestructura: Hoja MAESTROS no disponible.");
     if (!itemClaveSistema) throw new Error("Infraestructura: No se halló 'SISTEMA_CLAVE'.");
-
+    
     claveProteccion = itemClaveSistema.getRange().getText();
     tablaBaseDatos = workbook.getTable(nombreTablaPrincipal);
     
@@ -107,9 +88,40 @@ function main(
 
     if (!tablaBaseDatos) throw new Error(`Infraestructura: La tabla '${nombreTablaPrincipal}' no existe.`);
     if (!tablaHistorial) throw new Error(`Infraestructura: La tabla '${nombreTablaHistorial}' no existe.`);
-
-    // --- II. CAPTURA Y PROCESAMIENTO DE DATOS DEL FORMULARIO ---
+    // --- DESPROTECCIÓN ---
     hojaEntradaWS.getProtection().unprotect(claveProteccion);
+    // --- GUARDIA DE INTEGRIDAD (Ahora adentro y desprotegido) ---
+    if (hashBBDD_Maestro !== "0" && hashVivoBBDD !== hashBBDD_Maestro) {
+      mensajeErrorIntegridad = `ERROR: Integridad violada en ${nombreTablaPrincipal}.`;
+    } else if (hashHistorial_Maestro !== "0" && hashVivoHistorial !== hashHistorial_Maestro) {
+      mensajeErrorIntegridad = `ERROR: Integridad violada en Historial.`;
+    }
+
+    // SI HAY ERROR, INFORMAMOS AL USUARIO EN LA PLANILLA ANTES DE ABORTAR
+    if (mensajeErrorIntegridad !== "") {
+      // 1. Actualizamos el objeto que usa el 'finally' para que no nos pise el mensaje
+      resultadoOperacion.success = false;
+      resultadoOperacion.message = mensajeErrorIntegridad + " Contacte al Administrador.";
+      resultadoOperacion.logLevel = 'ERROR';
+
+      // 2. Buscamos la hoja y el rango (Asegurate de que el nombre sea exacto: UI_FEEDBACK o UIFEEDBACK)
+      const hojaInput = workbook.getWorksheet(nombreHojaEntrada);
+      const itemFeedback = hojaInput.getNamedItem("UI_FEEDBACK"); // <--- OJO: Verificá si lleva guion bajo
+
+      if (itemFeedback) {
+          const celdaEstado = itemFeedback.getRange();
+          celdaEstado.setValue(resultadoOperacion.message);
+          celdaEstado.getFormat().getFill().setColor(PALETA_COLORES_UX.ERROR.fondo);
+          celdaEstado.getFormat().getFont().setColor(PALETA_COLORES_UX.ERROR.texto);
+      }
+
+      // 3. Ahora sí, lanzamos el error. 
+      // El 'finally' se ejecutará pero como ya actualizamos 'resultadoOperacion', 
+      // volverá a pintar lo mismo y el error persistirá.
+      throw new Error(mensajeErrorIntegridad);
+    }
+    // --- II. CAPTURA Y PROCESAMIENTO DE DATOS DEL FORMULARIO ---
+
     const rangoEtiquetas = hojaEntradaWS.getRange("B:B").getUsedRange();
 
     if (rangoEtiquetas) {
@@ -295,7 +307,8 @@ function main(
       nuevoHashBBDD: nuevoSelloBBDD,
       nuevoHashHistorial: nuevoSelloHistorial,
       status: "SUCCESS"}
-  } catch (excepcionSistema) {
+  
+    } catch (excepcionSistema) {
     resultadoOperacion.success = false;
     resultadoOperacion.message = `❌ Error Crítico: ${String(excepcionSistema)}`;
     resultadoOperacion.logLevel = 'ERROR';
@@ -319,7 +332,7 @@ function main(
     if (typeof valor === "number") return valor;
     const partes = String(valor).split("/");
     if (partes.length === 3) {
-      const objetoFecha = new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(p[0]));
+      const objetoFecha = new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(partes));
       return (objetoFecha.getFullYear() === parseInt(partes[2])) ? objetoFecha.getTime() : NaN;
     }
     return NaN;
