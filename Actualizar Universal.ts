@@ -171,6 +171,19 @@ async function main(
                     if (configuracionActiva.estadosBloqueantes.includes(valorEstadoActual)) {
                         listaErroresValidacion.push(`Protección ALCOA+: No se permite modificar registros en estado ${valorEstadoActual}.`);
                     } else {
+
+                        // --- CONTROL DE CONCURRENCIA OPTIMISTA (OCC) ---
+                        const indiceAuditTrailBBDD: number = encabezadosTabla.indexOf("AUDIT_TRAIL");
+                        if (indiceAuditTrailBBDD !== -1) {
+                            const estampaTiempoBBDD: string = String(matrizValoresDB[indiceFilaEncontrada][indiceAuditTrailBBDD]).trim();
+                            const estampaTiempoFormulario: string = String(objetoDatosFormulario["AUDIT_TRAIL"] || "").trim();
+
+                            // Si el formulario posee estampa y difiere de la BBDD actual, otro usuario la modificó
+                            if (estampaTiempoFormulario !== "" && estampaTiempoFormulario !== "N/A" && estampaTiempoBBDD !== estampaTiempoFormulario) {
+                                listaErroresValidacion.push(`Conflicto de concurrencia (Lost Update): El registro fue modificado por otro usuario en la sesión. Vuelva a buscar el registro para actualizar su vista.`);
+                            }
+                        }
+                        
                         // --- 4. DETECCIÓN DE CAMBIOS Y REGLAS DE NEGOCIO ---
                         const valoresFilaOriginal: ValorCelda[] = [...matrizValoresDB[indiceFilaEncontrada]];
                         const logDeCambios: string[] = [];
