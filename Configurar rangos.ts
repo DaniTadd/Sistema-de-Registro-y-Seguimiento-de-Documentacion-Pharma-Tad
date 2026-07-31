@@ -41,9 +41,13 @@ function main(
   // --- II. EJECUCIÓN DEL MOTOR DE DESBLOQUEO (SESE & BATCHING I/O) ---
   if (ejecucionHabilitada && hojaEntradaWS) {
     try {
-      // A) RESET DE SEGURIDAD (Zero Trust): Bloqueo integral de la superficie de la hoja
+      // A) RESET DE SEGURIDAD (Zero Trust): Bloqueo integral
       hojaEntradaWS.getProtection().unprotect(claveSeguridadSistema);
-      hojaEntradaWS.getRange().getFormat().getProtection().setLocked(true); 
+      
+      const rangoUsadoTotal = hojaEntradaWS.getUsedRange();
+      if (rangoUsadoTotal) {
+          rangoUsadoTotal.getFormat().getProtection().setLocked(true); 
+      }
 
       // B) MAPEO EN RAM (Contrato Columna B -> C)
       let camposContabilizados: number = 0;
@@ -54,13 +58,13 @@ function main(
       if (rangoEtiquetasUsadas) {
         const matrizEtiquetas: (string | number | boolean)[][] = rangoEtiquetasUsadas.getValues();
         const indiceFilaInicial: number = rangoEtiquetasUsadas.getRowIndex();
-        const direccionesDesbloqueo: string[] = [];
+        
+        // Recolector numérico de filas objetivo
+        const filasAUnlockear: number[] = []; 
 
-        // Identificación de filas target sin emitir peticiones a la API
         matrizEtiquetas.forEach((fila: (string | number | boolean)[], indiceMatriz: number) => {
           const valorEtiqueta: string = String(fila[0]).trim();
-          const indiceFilaReal: number = indiceFilaInicial + indiceMatriz; // Índice base 0
-          const filaExcelFisica: number = indiceFilaReal + 1; // Ajuste a base 1 para API
+          const filaExcelFisica: number = indiceFilaInicial + indiceMatriz + 1; 
 
           // Evaluación de Reglas de Negocio Estrictas
           const esEtiquetaValida = valorEtiqueta !== "";
@@ -68,21 +72,35 @@ function main(
           const noEsIdentificador = !valorEtiqueta.toUpperCase().startsWith("ID");
 
           if (esEtiquetaValida && estaFueraDeZonaProtegida && noEsIdentificador) { 
-            direccionesDesbloqueo.push(`C${filaExcelFisica}`);
+            filasAUnlockear.push(filaExcelFisica);
             camposContabilizados++;
           }
         });
 
-        // C) COMMIT BATCHING (Escritura Masiva)
-        if (direccionesDesbloqueo.length > 0) {
-          const TAMANO_LOTE: number = 50; 
-          let indiceLote: number = 0;
-          
-          while (indiceLote < direccionesDesbloqueo.length) {
-            const stringLoteRango: string = direccionesDesbloqueo.slice(indiceLote, indiceLote + TAMANO_LOTE).join(",");
-            hojaEntradaWS.getRange(stringLoteRango).getFormat().getProtection().setLocked(false);
-            indiceLote += TAMANO_LOTE;
-          }
+        // C) ALGORITMO DE AGRUPACIÓN (Contiguous Range Batching)
+        // Transforma [5,6,7,9,10] en ["C5:C7", "C9:C10"]
+        if (filasAUnlockear.length > 0) {
+            let bloquesContiguos: string[] = [];
+            let filaInicio = filasAUnlockear[0];
+            let filaFin = filasAUnlockear[0];
+
+            let indiceIteracion = 1;
+            while (indiceIteracion < filasAUnlockear.length) {
+                if (filasAUnlockear[indiceIteracion] === filaFin + 1) {
+                    filaFin = filasAUnlockear[indiceIteracion];
+                } else {
+                    bloquesContiguos.push(filaInicio === filaFin ? `C${filaInicio}` : `C${filaInicio}:C${filaFin}`);
+                    filaInicio = filasAUnlockear[indiceIteracion];
+                    filaFin = filasAUnlockear[indiceIteracion];
+                }
+                indiceIteracion++;
+            }
+            bloquesContiguos.push(filaInicio === filaFin ? `C${filaInicio}` : `C${filaInicio}:C${filaFin}`);
+
+            // COMMIT I/O: Peticiones mínimas con sintaxis estricta API
+            bloquesContiguos.forEach((bloqueRango: string) => {
+                hojaEntradaWS.getRange(bloqueRango).getFormat().getProtection().setLocked(false);
+            });
         }
       }
 
