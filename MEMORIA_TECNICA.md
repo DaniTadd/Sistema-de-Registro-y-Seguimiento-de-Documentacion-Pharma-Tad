@@ -1,91 +1,84 @@
-# 📚 Manual de Lógica y Memoria Técnica: Sistema Universal de Gestión (SGC)
+# 📚 Manual de Lógica y Memoria Técnica: SGC-Engine v3.0 (Excel-Centric Edition)
 
-**Versión:** 2.0 (Edición Auditable)  
-**Tecnología:** Office Scripts (TypeScript) + Power Automate + Python Bridge  
-**Estándar:** GMP / ALCOA+ (Integridad de Datos)  
-**Arquitectura:** Motor Agnóstico de Alto Desempeño (SESE)
-
----
-
-## 1. Filosofía del Sistema (Arquitectura)
-
-El sistema se basa en un diseño agnóstico y descriptivo que garantiza flexibilidad, cumplimiento normativo y transparencia total en la ejecución.
-
-### A. Mapeo Semántico Dinámico (Abstracción)
-El código no utiliza coordenadas fijas (ej. "C5"). La navegación se basa en la correspondencia de texto:
-* **Lógica:** El script recorre las etiquetas de la Columna B (o E), normaliza el texto (MAYÚSCULAS y `GUION_BAJO`) y busca la coincidencia exacta en los encabezados de la Base de Datos.
-* **Nomenclatura Técnica:** Se utiliza una nomenclatura descriptiva para que el flujo de datos sea autoexplicativo:
-    * `matrizEtiquetas`: Rango capturado de la interfaz de usuario.
-    * `objetoDatosFormulario`: Estructura de datos procesados listos para validación.
-    * `encabezadosTabla`: Mapeo de la estructura física de la base de datos.
-    * `matrizValoresDB`: Datos crudos para cálculos y comparaciones.
-
-### B. Salvaguarda de Integridad Estricta (Mismatch Check)
-El sistema implementa una barrera de seguridad activa para evitar la sobreescritura accidental o desincronizada:
-* **Validación de Identidad:** El motor compara el `idDesdePanel` (parámetro externo) contra el `idEnHoja` (dato local en el formulario).
-* **Condición de Aborto:** Si existe discrepancia entre ambos Identificadores, el sistema lanza una excepción (`throw Error`) y detiene la transacción antes de afectar la persistencia de los datos.
-
-### C. Lógica de Cierre Seguro (SafeProtect)
-El flujo de ejecución garantiza la seguridad del entorno mediante el bloque `finally`:
-* **Protocolo auxiliarProtegerHoja:** Al finalizar cada proceso, el sistema reaplica la protección con permisos de navegación (Autofiltro) y edición restringida.
-* **Transaccionalidad:** La integridad de la operación principal es prioritaria, pero el estado de la protección final siempre se verifica y se registra en el log técnico.
-
-### D. Seguridad por "Puente" (Bridge)
-La seguridad está desacoplada del código fuente mediante el uso de **Nombres Definidos**:
-1. No se almacenan credenciales dentro de los scripts.
-2. La clave de protección se recupera dinámicamente desde el ítem `SISTEMA_CLAVE`.
+**Versión:** 3.0 (Arquitectura de Alta Integridad)
+**Tecnología:** Office Scripts (TypeScript)
+**Estándar:** Compliance GMP / ALCOA+ (Data Integrity)
+**Arquitectura:** Motor Transaccional de Estado Sólido (SESE)
 
 ---
 
-## 2. Estructura de Datos (Compliance ALCOA+)
+## 1. Filosofía de Ingeniería y Arquitectura
 
-El sistema distingue entre datos de negocio (flexibles) y metadatos de auditoría (rígidos).
+El sistema ha evolucionado hacia un modelo **Excel-Centric**, eliminando dependencias de flujos externos para reducir la latencia y maximizar el control de integridad en el punto de uso.
 
-### 2.1 Metadatos de Auditoría (Trazabilidad Inmutable)
-Campos obligatorios gestionados exclusivamente por el motor lógico:
+### A. Mapeo Semántico Dinámico
+El motor opera mediante una capa de abstracción que desacopla la interfaz de usuario de la base de datos física:
+*   **Navegación por Etiquetas:** El script no utiliza referencias fijas (ej. "B5"). Realiza un escaneo dinámico de etiquetas en el formulario, normaliza los textos y busca su paridad exacta en los encabezados de las tablas.
+*   **Nomenclatura Técnica:** Se mantiene un estándar descriptivo para garantizar que el código sea auditable:
+    *   `objetoDatosFormulario`: Buffer de datos capturados y sanitizados.
+    *   `encabezadosTabla`: Estructura lógica de destino.
+
+### B. Seguridad Criptográfica Zero-Trust
+Se implementa una capa de seguridad basada en estándares industriales para la protección de la identidad:
+*   **Firmas SHA-256:** Las contraseñas de usuario no se almacenan en texto plano. El sistema utiliza hashes criptográficos irreversibles para validar la identidad.
+*   **Protocolo "INICIAR":** Las credenciales nuevas o reseteadas utilizan la bandera `INICIAR`, obligando al operario a establecer una firma digital única en su primera transacción.
+
+### C. Validación de Integridad en Vivo (ALCOA+)
+Antes de cualquier transacción (Escritura/Edición), el motor ejecuta un control de salud estructural:
+*   **Live Hash Check:** El script calcula el SHA-256 de las tablas en tiempo real y lo compara contra el sello maestro en `TablaIntegridad`.
+*   **Bloqueo Catastrófico:** Si se detecta una alteración manual de los datos (violación de integridad), el sistema bloquea cualquier operación y solicita la intervención de Calidad.
+
+---
+
+## 2. Estructura de Datos y Persistencia
+
+### 2.1 Metadatos de Auditoría Inmutables
+Campos gestionados estrictamente por el motor para garantizar la trazabilidad:
 
 | Campo | Función | Comportamiento |
 | :--- | :--- | :--- |
-| **ID** | Identificador único | Prefijo dinámico + Máximo correlativo numérico + 1. |
-| **ESTADO** | Ciclo de vida | Controlado por el sistema (ABIERTO / CERRADO / ANULADO). |
-| **AUDIT_TRAIL** | Timestamp | Fecha/Hora de la operación generada en el servidor (ART). |
-| **USUARIO** | Firma Digital | Email del usuario responsable de la acción. |
-| **MOTIVO** | Justificación | Parámetro obligatorio para cualquier edición o cambio de estado. |
-| **CAMBIOS** | Log de diferencias | Detalle automático de campos modificados: `[Campo]: [V. Anterior] -> [V. Nuevo]`. |
+| **ID** | Identificador Único | Prefijo dinámico + Máximo correlativo + 1. |
+| **ESTADO** | Ciclo de Vida | ABIERTO / CERRADO / ANULADO. |
+| **AUDIT_TRAIL** | Timestamp | Registro temporal generado por el servidor (GMT-3). |
+| **USUARIO** | Firma Digital | ID del usuario autenticado mediante Hash. |
+| **MOTIVO** | Justificación | Parámetro obligatorio para cumplir con la intención del registro. |
+| **CAMBIOS** | Log de Auditoría | Detalle de diferencias: `[Campo]: [V. Anterior] -> [V. Nuevo]`. |
 
-### 2.2 Gestión de Persistencia
-* **Inyección de NULL:** En el registro de nuevos datos, las columnas que no figuran en el formulario reciben un valor `null`, permitiendo que Excel ejecute el **autorrelleno de fórmulas** de forma nativa.
-* **Commit Quirúrgico:** Las actualizaciones solo sobrescriben las celdas modificadas en el formulario, preservando la integridad de las columnas de cálculo existentes en la tabla.
-
----
-
-## 3. Motor de Reglas y Validación Jerárquica
-
-La validación lógica se parametriza desde la `TablaReglas` en la hoja `MAESTROS`.
-
-* **EXISTE_EN:** Verifica integridad referencial en tablas maestras.
-* **ESTA_ABIERTO (Validación Jerárquica):** Permite validar el estado de una entidad "Madre" desde un proceso de una entidad "Hija".
-    * **Sintaxis:** `TablaMadre[ColumnaID];[ColumnaEstado];ValorEsperado`
-* **Operadores Comparativos:** Soporte para validaciones cronológicas (`<`, `>`, `<=`, `>=`) entre campos del formulario.
+### 2.2 Normalización de Fechas
+Para evitar falsos positivos en el Audit Trail, el sistema implementa una normalización cronológica doble:
+1.  **Input:** Acepta tanto números seriales de Excel como strings en formato `DD/MM/YYYY`.
+2.  **Comparación:** Estandariza ambos valores a un formato común antes de evaluar si existe un cambio real de datos.
 
 ---
 
-## 4. Gestión de Interfaz y Sincronización
+## 3. Protocolos de Operación Segura
 
-* **Sincronizador Python:** Herramienta externa que garantiza la paridad absoluta entre el repositorio de código local (Git) y los archivos operativos en la nube (.osts).
-* **Configuración de Rangos:** Proceso automático de bloqueo de etiquetas y desbloqueo de celdas de entrada para minimizar el error humano.
-* **Seguridad Visual:** La función de búsqueda escribe el ID localizado directamente en el formulario para confirmar la identidad del registro activo.
+### 3.1 Cambio de Estado y Dependencias
+El sistema permite el cierre condicionado de registros mediante la regla `DEPENDENCIAS_CERRADAS`:
+*   **Integridad Referencial:** Antes de cerrar una entidad "Madre", el motor escanea las tablas "Hijas" (ej. CAPAs) y bloquea la acción si detecta dependencias abiertas.
+
+### 3.2 Double-Check de Anulación
+La anulación es una acción terminal que requiere una confirmación de seguridad extendida:
+*   **Validación de Mismatch:** El usuario debe ingresar manualmente el ID del registro que desea anular. El sistema aborta si el ID ingresado no coincide con el registro activo en pantalla.
 
 ---
 
-## 5. Matriz de Solución de Problemas (Troubleshooting)
+## 4. Matriz de Solución de Problemas (Troubleshooting)
 
-| Mensaje de Error | Canal | Causa Probable |
+| Mensaje de Error | Canal | Causa y Acción Correctiva |
 | :--- | :---: | :--- |
-| **"ERROR: Mismatch de ID"** | ⚠️ Feedback | El ID del panel no coincide con el de la hoja. Se requiere re-sincronizar. |
-| **"AccessDenied"** | ⛔ Sistema | Error en el ítem `SISTEMA_CLAVE` o protección manual de hoja. |
-| **"Faltan columnas..."** | ⛔ Sistema | Inconsistencia entre etiquetas de UI y encabezados de Base de Datos. |
-| **"ID Requerido"** | ⚠️ Feedback | Intento de operación de edición sin un registro cargado. |
-| **"Registro ANULADO"** | ⚠️ Feedback | Intento de modificar un estado inmutable definido por protocolo. |
+| **"ERROR: Integridad violada en..."** | ⛔ Sistema | Alteración manual de la base de datos detectada. El sistema se bloquea por seguridad ALCOA+. |
+| **"Firma inválida: Credenciales..."** | ⚠️ Feedback | La clave ingresada no coincide con el Hash del usuario. |
+| **"Mismatch de Seguridad: ID..."** | ⚠️ Feedback | Error en el Double-Check. El ID tipeado no coincide con el del formulario. |
+| **"Integridad violada en TablaUsuarios"** | ⛔ Sistema | Alguien intentó modificar las claves de seguridad manualmente. |
+| **"AccessDenied / SISTEMA_CLAVE"** | ⛔ Sistema | Fallo al recuperar la clave de protección del Administrador de Nombres. |
 
 ---
+
+## 5. Gestión de Infraestructura (Administración)
+
+*   **Reset de Claves:** El administrador puede resetear la contraseña de un operario escribiendo `INICIAR` en el campo de Hash de la `TablaUsuarios`. Esto debe realizarse mediante el script de administración para actualizar también la `TablaIntegridad`.
+*   **Protección (SafeProtect):** Al finalizar cada script, el bloque `finally` garantiza que todas las hojas (Datos, Historial, Usuarios e Integridad) queden protegidas bajo el secreto de `SISTEMA_CLAVE`.
+
+---
+*Documento de carácter confidencial. Diseñado para asegurar el cumplimiento de la **CFR 21 Part 11** en entornos de hojas de cálculo.*

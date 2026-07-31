@@ -25,6 +25,7 @@ env/
 # --- 4. CONFIGURACIÓN LOCAL ---
 # CRÍTICO: Aquí va mi ruta de One Drive real, no debe siburse.
 config.py
+.vscode
 
 # --- 5. SISTEMA OPERATIVO E IDE ---
 # Archivos basura de Windows y configuraciones del editor.
