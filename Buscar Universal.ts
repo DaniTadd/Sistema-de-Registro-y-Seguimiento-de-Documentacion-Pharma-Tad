@@ -1,6 +1,6 @@
 /**
  * SCRIPT: UI_BUSCAR_UNIVERSAL
- * OBJETIVO: Recuperar un registro único mediante Query-By-Example (QBE) con feedback visual de estado (UX).
+ * OBJETIVO: Recuperar un registro mediante Query-By-Example (QBE) dinámico usando prefijos BUSQUEDA_ con feedback visual (UX).
  * GARANTÍA: Estructura SESE estricta. Actualización de UI y sellado de seguridad garantizado en bloque finally.
  */
 
@@ -27,14 +27,15 @@ function main(workbook: ExcelScript.Workbook) {
         "INP_DES": { tabla: "TablaDesvios" },
         "INP_CAPAS": { tabla: "TablaCapas" },
         "INP_AFECT": { tabla: "TablaAfectacion" },
-        "INP_EQ": { tabla: "TablaEquipos" }
+        "INP_EQ": { tabla: "TablaEquipos" },
+        "INP_REC": { tabla: "TablaReclamos" }
     };
 
     const PALETA_COLORES_UX: MapaColoresUX = {
-        'INFO': { fondo: "#D9E1F2", texto: "#1F4E78" },     // Azul tenue
-        'SUCCESS': { fondo: "#E2EFDA", texto: "#375623" },  // Verde
-        'WARNING': { fondo: "#FFF2CC", texto: "#7F6000" },  // Amarillo
-        'ERROR': { fondo: "#FCE4D6", texto: "#C00000" }     // Rojo
+        'INFO': { fondo: "#D9E1F2", texto: "#1F4E78" },    
+        'SUCCESS': { fondo: "#E2EFDA", texto: "#375623" },  
+        'WARNING': { fondo: "#FFF2CC", texto: "#7F6000" },  
+        'ERROR': { fondo: "#FCE4D6", texto: "#C00000" }     
     };
 
     let resultadoOperacion: ResultadoAccion = { success: true, message: "Inicio de transacción de Búsqueda QBE.", logLevel: 'INFO' };
@@ -77,11 +78,13 @@ function main(workbook: ExcelScript.Workbook) {
 
                 let idxInterfaz: number = numFilasEncabezado;
                 while (idxInterfaz < matrizInterfaz.length) {
-                    const etiquetaRaw: string = String(matrizInterfaz[idxInterfaz][0]).trim();
+                    const etiquetaRaw: string = String(matrizInterfaz[idxInterfaz][0]).trim().toUpperCase();
                     const valorRaw: string = String(matrizInterfaz[idxInterfaz][1]).trim();
 
-                    if (etiquetaRaw !== "" && valorRaw !== "" && valorRaw !== "N/A") {
-                        etiquetaCriterioBusqueda = etiquetaRaw.replace(/\*/g, "").toUpperCase().replace(/\s/g, "_");
+                    // --- EVALUACIÓN DINÁMICA DE PREFIJO BUSQUEDA_ ---
+                    if (etiquetaRaw.startsWith("BUSQUEDA_") && valorRaw !== "" && valorRaw !== "N/A") {
+                        // Extrae de forma dinámica el campo ubicado a la derecha de "BUSQUEDA_" (ej. BUSQUEDA_TAG -> TAG)
+                        etiquetaCriterioBusqueda = etiquetaRaw.replace("BUSQUEDA_", "").trim().replace(/\*/g, "").replace(/\s/g, "_");
                         valorCriterioBusqueda = valorRaw.toUpperCase();
                         camposPobladosCount++;
                     }
@@ -89,9 +92,9 @@ function main(workbook: ExcelScript.Workbook) {
                 }
 
                 if (camposPobladosCount === 0) {
-                    resultadoOperacion = { success: false, message: "Validación: Formulario vacío. Ingrese un valor para buscar.", logLevel: 'WARNING' };
+                    resultadoOperacion = { success: false, message: "Validación: Formulario vacío. Ingrese un criterio en el campo de búsqueda.", logLevel: 'WARNING' };
                 } else if (camposPobladosCount > 1) {
-                    resultadoOperacion = { success: false, message: "Validación: Riesgo de ambigüedad. Utilice solo UN campo para buscar.", logLevel: 'WARNING' };
+                    resultadoOperacion = { success: false, message: "Validación: Riesgo de ambigüedad. Utilice solo UN campo de búsqueda a la vez.", logLevel: 'WARNING' };
                 } else {
                     
                     const encabezadosBD: string[] = tablaObjetivo.getHeaderRowRange().getValues()[0].map(h => String(h).trim().toUpperCase());
@@ -99,7 +102,7 @@ function main(workbook: ExcelScript.Workbook) {
                     const indiceColumnaBusqueda: number = encabezadosBD.indexOf(etiquetaCriterioBusqueda);
 
                     if (indiceColumnaBusqueda === -1) {
-                        resultadoOperacion = { success: false, message: `Error Estructural: El campo '${etiquetaCriterioBusqueda}' no existe en la BBDD.`, logLevel: 'ERROR' };
+                        resultadoOperacion = { success: false, message: `Error Estructural: El campo '${etiquetaCriterioBusqueda}' no existe como columna en la BBDD.`, logLevel: 'ERROR' };
                     } else {
                         let registrosCoincidentes: (string | number | boolean)[][] = [];
                         let idxBD: number = 0;
@@ -113,9 +116,9 @@ function main(workbook: ExcelScript.Workbook) {
                         }
 
                         if (registrosCoincidentes.length === 0) {
-                            resultadoOperacion = { success: false, message: `Búsqueda sin resultados para '${valorCriterioBusqueda}'.`, logLevel: 'WARNING' };
+                            resultadoOperacion = { success: false, message: `Búsqueda sin resultados para el criterio '${valorCriterioBusqueda}'.`, logLevel: 'WARNING' };
                         } else if (registrosCoincidentes.length > 1) {
-                            resultadoOperacion = { success: false, message: `Bloqueo ALCOA+: Se hallaron ${registrosCoincidentes.length} registros. El criterio debe ser único.`, logLevel: 'ERROR' };
+                            resultadoOperacion = { success: false, message: `Bloqueo ALCOA+: Se hallaron ${registrosCoincidentes.length} registros coincidentes. El criterio debe ser unívoco.`, logLevel: 'ERROR' };
                         } else {
                             
                             const filaRecuperada = registrosCoincidentes[0];
@@ -124,9 +127,11 @@ function main(workbook: ExcelScript.Workbook) {
 
                             let idxRestauracion: number = numFilasEncabezado;
                             while (idxRestauracion < matrizInterfaz.length) {
-                                const etiquetaRaw: string = String(matrizInterfaz[idxRestauracion][0]).trim();
-                                if (etiquetaRaw !== "") {
-                                    const etiquetaNormalizada: string = etiquetaRaw.replace(/\*/g, "").toUpperCase().replace(/\s/g, "_");
+                                const etiquetaRaw: string = String(matrizInterfaz[idxRestauracion][0]).trim().toUpperCase();
+                                
+                                // Omitimos las celdas de control de búsqueda para no sobreescribir lo que el usuario tipeó
+                                if (etiquetaRaw !== "" && !etiquetaRaw.startsWith("BUSQUEDA_")) {
+                                    const etiquetaNormalizada: string = etiquetaRaw.replace(/\*/g, "").replace(/\s/g, "_");
                                     const indiceEnBD: number = encabezadosBD.indexOf(etiquetaNormalizada);
                                     
                                     if (indiceEnBD !== -1) {

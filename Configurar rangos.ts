@@ -51,7 +51,7 @@ function main(
 
       // B) MAPEO EN RAM (Contrato Columna B -> C)
       let camposContabilizados: number = 0;
-      const FILA_MINIMA_DESBLOQUEO: number = 5; // Regla de Negocio: De C4 hacia arriba queda bloqueado
+      const FILA_MINIMA_DESBLOQUEO: number = 4; // Regla de Negocio: De C4 hacia arriba queda bloqueado
       
       const rangoEtiquetasUsadas = hojaEntradaWS.getRange("B:B").getUsedRange();
       
@@ -69,7 +69,7 @@ function main(
           // Evaluación de Reglas de Negocio Estrictas
           const esEtiquetaValida = valorEtiqueta !== "";
           const estaFueraDeZonaProtegida = filaExcelFisica >= FILA_MINIMA_DESBLOQUEO;
-          const noEsIdentificador = !valorEtiqueta.toUpperCase().startsWith("ID");
+          const noEsIdentificador = !valorEtiqueta.toUpperCase().startsWith("ID_");
 
           if (esEtiquetaValida && estaFueraDeZonaProtegida && noEsIdentificador) { 
             filasAUnlockear.push(filaExcelFisica);
