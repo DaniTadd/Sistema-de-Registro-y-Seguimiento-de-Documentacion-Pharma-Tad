@@ -116,7 +116,7 @@ async function main(
       let actualizarFirmaUsuario: boolean = false;
 
       const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
-      const nombreCampoPrimario: string = encabezadosTabla[0];
+      const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
       
       const idEnPantalla: string = String(objetoDatosFormulario[nombreCampoPrimario] || "").trim().toUpperCase();
       const idTipeado: string = idConfirmacion.trim().toUpperCase();

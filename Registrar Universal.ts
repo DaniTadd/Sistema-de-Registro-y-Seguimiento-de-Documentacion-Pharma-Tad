@@ -30,9 +30,9 @@ async function main(
         INFO: { fondo: "#E2E3E5", texto: "#383D41" }
     };
 
-    let hojaEntradaWS: ExcelScript.Worksheet | undefined; 
-    let tablaBaseDatos: ExcelScript.Table | undefined; 
-    let tablaHistorial: ExcelScript.Table | undefined; 
+    let hojaEntradaWS: ExcelScript.Worksheet | undefined;
+    let tablaBaseDatos: ExcelScript.Table | undefined;
+    let tablaHistorial: ExcelScript.Table | undefined;
     let tablaUsuarios: ExcelScript.Table | undefined;
     let tablaIntegridad: ExcelScript.Table | undefined;
     let claveProteccion: string = "";
@@ -74,7 +74,7 @@ async function main(
         const regBBDD = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
         const regHistorial = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
         const regUsuarios = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
-        
+
         const hashInicio: string = "INICIAR";
         const hashBBDD_Maestro: string = regBBDD ? String(regBBDD[1]) : hashInicio;
         const hashHistorial_Maestro: string = regHistorial ? String(regHistorial[1]) : hashInicio;
@@ -109,14 +109,34 @@ async function main(
                 const etiquetaLimpia: string = String(fila[0]).trim().toUpperCase();
                 if (etiquetaLimpia !== "") {
                     const claveCampo: string = etiquetaLimpia.replace("*", "").trim().replace(/\s/g, "_");
-                    if (etiquetaLimpia.endsWith("*")) listaCamposObligatorios.push(claveCampo);
-                    
-                    const valorIngresado: ValorCelda = fila[1]; // Acceso directo a la columna de valores sin peticiones web
-                    objetoDatosFormulario[claveCampo] = (valorIngresado === null || String(valorIngresado).trim() === "") 
-                        ? (etiquetaLimpia.endsWith("*") ? "" : "N/A") 
+
+                    // CORRECCIÓN: Los campos que comienzan con BUSQUEDA_ nunca deben ser obligatorios para registrar,
+                    // aun si el diseñador de la planilla colocó un asterisco por error de plantilla.
+                    const esCampoBusqueda: boolean = claveCampo.startsWith("BUSQUEDA_");
+
+                    if (etiquetaLimpia.endsWith("*") && !esCampoBusqueda) {
+                        listaCamposObligatorios.push(claveCampo);
+                    }
+
+                    const valorIngresado: ValorCelda = fila[1];
+                    objetoDatosFormulario[claveCampo] = (valorIngresado === null || String(valorIngresado).trim() === "")
+                        ? ((etiquetaLimpia.endsWith("*") && !esCampoBusqueda) ? "" : "N/A")
                         : String(valorIngresado);
                 }
             });
+
+            // --- PUENTE DE NORMALIZACIÓN DINÁMICA (PATRÓN FILTRO_) ---
+            Object.keys(objetoDatosFormulario).forEach((claveCampo: string) => {
+                if (claveCampo.startsWith("FILTRO_")) {
+                    const claveColumnaReal: string = claveCampo.replace("FILTRO_", "");
+                    const valorSeleccionado: string = objetoDatosFormulario[claveCampo];
+
+                    if (valorSeleccionado !== "" && valorSeleccionado !== "N/A") {
+                        objetoDatosFormulario[claveColumnaReal] = valorSeleccionado;
+                    }
+                }
+            });
+            // ---------------------------------------------------------
 
             const listaErroresValidacion: string[] = [];
             const usuarioIngresado: string = usuarioEjecutor.trim();
@@ -127,7 +147,7 @@ async function main(
             } else {
                 const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
                 const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
-                
+
                 if (indiceUsuario === -1) {
                     listaErroresValidacion.push(`Firma inválida: El usuario '${usuarioIngresado}' no está registrado.`);
                 } else {
@@ -146,7 +166,7 @@ async function main(
             }
 
             const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
-            const nombreCampoPrimario: string = encabezadosTabla[0];
+            const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
 
             for (const clave in objetoDatosFormulario) {
                 if (clave.includes("FECHA") && objetoDatosFormulario[clave] !== "N/A" && objetoDatosFormulario[clave] !== "") {
@@ -166,34 +186,34 @@ async function main(
 
             if (tablaReglasMaestra) {
                 const matrizReglasTodas: ValorCelda[][] = tablaReglasMaestra.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                
+
 
                 matrizReglasTodas.forEach((regla: ValorCelda[]) => {
                     const entidadRegla: string = String(regla[0]).toUpperCase();
-                    
+
                     if (configuracionActiva.tabla.toUpperCase().includes(entidadRegla)) {
                         reglasAplicables.push(regla);
-                        
+
                         const operador: string = String(regla[2]);
                         const referenciaRaw: string = String(regla[3]);
 
                         if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A") {
                             const nombreTablaRequerida: string = referenciaRaw.split("[")[0];
-                            
+
                             // Si la tabla no está en RAM, se realiza la petición I/O
                             if (nombreTablaRequerida && !diccionarioTablasAuxiliares[nombreTablaRequerida]) {
                                 const tablaAuxiliar = workbook.getTable(nombreTablaRequerida);
                                 if (tablaAuxiliar) {
                                     const encabezadosAuxiliares: string[] = tablaAuxiliar.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
                                     const datosAuxiliares: ValorCelda[][] = tablaAuxiliar.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                                    
-                                    diccionarioTablasAuxiliares[nombreTablaRequerida] = { 
-                                        encabezados: encabezadosAuxiliares, 
-                                        datos: datosAuxiliares 
+
+                                    diccionarioTablasAuxiliares[nombreTablaRequerida] = {
+                                        encabezados: encabezadosAuxiliares,
+                                        datos: datosAuxiliares
                                     };
                                 }
                             }
-                        }  
+                        }
                         else if (operador === "LOG_EVENTO") {
                             reglasEventos.push(regla);
                             const nombreTablaRequerida: string = referenciaRaw.trim();
@@ -209,10 +229,10 @@ async function main(
                                             maxIdObj = Math.max(...vals.map(v => Number(v[0])));
                                         }
                                     }
-                                    diccionarioTablasAuxiliares[nombreTablaRequerida] = { 
-                                        encabezados: encabezadosAuxiliares, 
+                                    diccionarioTablasAuxiliares[nombreTablaRequerida] = {
+                                        encabezados: encabezadosAuxiliares,
                                         datos: [], // No requiere array de datos, es append-only
-                                        maxIdEvento: maxIdObj 
+                                        maxIdEvento: maxIdObj
                                     };
                                 }
                             }
@@ -229,7 +249,7 @@ async function main(
                     const valorAValidar: string = objetoDatosFormulario[campoA];
 
                     if (valorAValidar && valorAValidar !== "N/A") {
-                        
+
                         if (operador === "EXISTE_EN") {
                             const partesReferencia: string[] = referenciaRaw.split("[");
                             const nombreTabla: string = partesReferencia[0];
@@ -245,11 +265,11 @@ async function main(
                                     }
                                 }
                             }
-                        } 
+                        }
                         else if (operador === "ESTADO_DISTINTO_A") {
                             // Descomposición de Sintaxis: Tabla[ID];[ColEstado];ESTADO_PROHIBIDO
                             const segmentosCondicion: string[] = referenciaRaw.split(";");
-                            
+
                             if (segmentosCondicion.length === 3) {
                                 const partesTabla: string[] = segmentosCondicion[0].split("[");
                                 const nombreTabla: string = partesTabla[0];
@@ -283,14 +303,14 @@ async function main(
                                 }
                             }
                         }
-                       else if (operador === "ES_UNICO_ALFANUMERICO") {
+                        else if (operador === "ES_UNICO_ALFANUMERICO") {
                             const nombreTablaDestino: string = referenciaRaw.trim();
                             const tablaEnMemoria = diccionarioTablasAuxiliares[nombreTablaDestino];
 
                             if (tablaEnMemoria) {
                                 // Corrección de nomenclatura: campoA
-                                const indiceColumnaId: number = tablaEnMemoria.encabezados.indexOf(campoA); 
-                                
+                                const indiceColumnaId: number = tablaEnMemoria.encabezados.indexOf(campoA);
+
                                 if (indiceColumnaId !== -1) {
                                     // Sanitización estricta: Solo letras y números, en mayúscula
                                     const valorNormalizadoInput: string = String(valorAValidar).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
@@ -334,8 +354,8 @@ async function main(
 
                 // --- NUEVO: PREPARACIÓN DE EVENTOS DINÁMICOS (EVENT SOURCING EN RAM) ---
                 const eventosAInsertar: { tablaDestino: string, filaData: string[] }[] = [];
-                
-                    reglasEventos.forEach((regla: ValorCelda[]) => {
+
+                reglasEventos.forEach((regla: ValorCelda[]) => {
                     const campoFormulario: string = String(regla[1]).toUpperCase().replace(/\s/g, "_");
                     const tablaDestino: string = String(regla[3]).trim();
                     const valorIngresado = objetoDatosFormulario[campoFormulario];
@@ -345,7 +365,7 @@ async function main(
                         const infoTabla = diccionarioTablasAuxiliares[tablaDestino];
                         if (infoTabla) {
                             infoTabla.maxIdEvento = (infoTabla.maxIdEvento || 0) + 1;
-                            
+
                             // Reflexión: Mapeo automático basado en coincidencias de encabezados
                             const nuevaFilaEvento: string[] = infoTabla.encabezados.map((enc: string) => {
                                 if (enc === "ID_EVENTO") return String(infoTabla.maxIdEvento);
@@ -353,7 +373,7 @@ async function main(
                                 if (enc === "USUARIO") return usuarioIngresado;
                                 if (enc === "MOTIVO") return "Registro inicial"; // <-- Inyección del motivo estático para creación
                                 if (enc === nombreCampoPrimario) return idGeneradoFinal; // Vincula a la entidad madre
-                                
+
                                 if (objetoDatosFormulario[enc] !== undefined && objetoDatosFormulario[enc] !== "N/A") {
                                     return objetoDatosFormulario[enc];
                                 }
@@ -372,7 +392,7 @@ async function main(
                     if (enc === "AUDIT_TRAIL") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
                     return objetoDatosFormulario[enc] || "N/A";
                 });
-                
+
                 // 1. ESCRITURA OPTIMISTA
                 tablaBaseDatos.addRow(-1, filaBD);
 
@@ -392,7 +412,7 @@ async function main(
 
                 if (ocurrenciasID > 1) {
                     // --- COLISIÓN DETECTADA (ROLLBACK Y AUDITORÍA) ---
-                    
+
                     // A. Hard Delete: Eliminamos exclusivamente nuestra fila de la BBDD
                     tablaBaseDatos.getRangeBetweenHeaderAndTotal().getRow(indiceUltimaFila).delete(ExcelScript.DeleteShiftDirection.up);
 
@@ -413,10 +433,10 @@ async function main(
                     resultadoOperacion.success = false;
                     resultadoOperacion.message = `⚠️ Colisión detectada: El ID ${idGeneradoFinal} fue ocupado milisegundos antes. Presione Registrar nuevamente.`;
                     resultadoOperacion.logLevel = 'WARN';
-                    
+
                 } else {
                     // --- FLUJO NORMAL (SIN COLISIÓN) ---
-                    
+
                     const filaHist: ValorCelda[] = (tablaHistorial.getHeaderRowRange().getValues()[0] as string[]).map((h: string) => {
                         const hc = h.toUpperCase();
                         if (hc === "ID_EVENTO") return (tablaHistorial!.getRowCount() === 0 ? 1 : Math.max(...(tablaHistorial!.getColumnByName("ID_EVENTO").getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][]).map((v: ValorCelda[]) => Number(v[0]))) + 1);
@@ -441,7 +461,7 @@ async function main(
 
                     resultadoOperacion.message = `✅ ${configuracionActiva.articulo.toUpperCase()} ${configuracionActiva.etiqueta.toUpperCase()} #${idGeneradoFinal} se ha sellado digitalmente.`;
                     resultadoOperacion.logLevel = 'EXITO';
-                    
+
                     // Limpieza de interfaz solo si fue exitoso
                     auxiliarLimpiarFormulario(hojaEntradaWS, matrizDatosFormulario, indiceFilaInicial, nombreCampoPrimario);
                 }
@@ -451,9 +471,9 @@ async function main(
                 tablaIntegridad.getWorksheet().getProtection().unprotect(claveProteccion);
                 const nuevoSelloBBDD: string = await generarFirmaDigital(tablaBaseDatos, salt);
                 const nuevoSelloHistorial: string = await generarFirmaDigital(tablaHistorial, salt);
-                
+
                 let matrizSeg: ValorCelda[][] = tablaIntegridad.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                
+
                 const idxBBDD: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
                 if (idxBBDD !== -1) matrizSeg[idxBBDD][1] = nuevoSelloBBDD;
 
@@ -509,12 +529,12 @@ async function main(
         }
         return NaN;
     }
-    
+
 
     function auxiliarActualizarInterfazUX(hoja: ExcelScript.Worksheet, res: ResultadoAccion, colores: MapaColoresUX, pass: string): void {
         const itemF = hoja.getNamedItem("UI_FEEDBACK");
         const itemP = hoja.getNamedItem("UI_PREPARACION");
-        
+
         if (itemF) {
             const rf = itemF.getRange();
             const est = colores[res.logLevel];
@@ -524,10 +544,10 @@ async function main(
                 rf.getFormat().getFill().setColor(est.fondo);
                 rf.getFormat().getFont().setColor(est.texto);
                 rf.getFormat().getFont().setBold(true);
-                
-                if (itemP) { 
-                    itemP.getRange().setValue(""); 
-                    itemP.getRange().getFormat().getFill().clear(); 
+
+                if (itemP) {
+                    itemP.getRange().setValue("");
+                    itemP.getRange().getFormat().getFill().clear();
                 }
                 rf.select();
             } catch (e) {
@@ -542,8 +562,8 @@ async function main(
 
     function auxiliarProtegerHoja(h: ExcelScript.Worksheet | undefined, p: string, res: ResultadoAccion): void {
         if (h) {
-            try { 
-                h.getProtection().protect({ allowAutoFilter: true }, p); 
+            try {
+                h.getProtection().protect({ allowAutoFilter: true }, p);
             } catch (e) {
                 res.success = false;
                 res.logLevel = 'ERROR';
@@ -570,9 +590,9 @@ async function generarFirmaDigital(tabla: ExcelScript.Table, salt: string): Prom
 function sha256(s: string): string {
     let a: number = 0, b: number = 0, c: number = 0, d: number = 0, e: number = 0, f: number = 0, g: number = 0, h: number = 0;
     const chrsz: number = 8;
-    
+
     function safe_add(x: number, y: number): number {
-        const lsw: number = (x & 0xFFFF) + (y & 0xFFFF); 
+        const lsw: number = (x & 0xFFFF) + (y & 0xFFFF);
         const msw: number = (x >> 16) + (y >> 16) + (lsw >> 16);
         return (msw << 16) | (lsw & 0xFFFF);
     }
@@ -614,5 +634,5 @@ function sha256(s: string): string {
         return str;
     }
     return binb2hex(core_sha256(str2binb(s), s.length * chrsz));
-    
+
 }

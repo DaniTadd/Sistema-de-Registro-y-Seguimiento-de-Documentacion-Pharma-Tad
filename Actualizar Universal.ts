@@ -12,7 +12,7 @@ interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
 async function main(
     workbook: ExcelScript.Workbook,
     usuarioEjecutor: string,
-    motivoModificacion: string, 
+    motivoModificacion: string,
     claveFirma: string
 ) {
     const resultadoOperacion: ResultadoAccion = { success: true, message: "Inicio de actualización", logLevel: 'INFO' };
@@ -70,7 +70,7 @@ async function main(
         const regBBDD = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
         const regHistorial = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
         const regUsuarios = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
-        
+
         const hashInicio: string = "INICIAR";
         const hashBBDD_Maestro: string = regBBDD ? String(regBBDD[1]) : hashInicio;
         const hashHistorial_Maestro: string = regHistorial ? String(regHistorial[1]) : hashInicio;
@@ -104,13 +104,26 @@ async function main(
                 if (etiquetaLimpia !== "") {
                     const claveCampo: string = etiquetaLimpia.replace("*", "").trim().replace(/\s/g, "_");
                     if (etiquetaLimpia.endsWith("*")) listaCamposObligatorios.push(claveCampo);
-                    
-                    const valorIngresado: ValorCelda = fila[1]; 
-                    objetoDatosFormulario[claveCampo] = (valorIngresado === null || String(valorIngresado).trim() === "") 
-                        ? (etiquetaLimpia.endsWith("*") ? "" : "N/A") 
+
+                    const valorIngresado: ValorCelda = fila[1];
+                    objetoDatosFormulario[claveCampo] = (valorIngresado === null || String(valorIngresado).trim() === "")
+                        ? (etiquetaLimpia.endsWith("*") ? "" : "N/A")
                         : String(valorIngresado);
                 }
             });
+
+            // --- PUENTE DE NORMALIZACIÓN DINÁMICA (PATRÓN FILTRO_) ---
+            Object.keys(objetoDatosFormulario).forEach((claveCampo: string) => {
+                if (claveCampo.startsWith("FILTRO_")) {
+                    const claveColumnaReal: string = claveCampo.replace("FILTRO_", "");
+                    const valorSeleccionado: string = objetoDatosFormulario[claveCampo];
+
+                    if (valorSeleccionado !== "" && valorSeleccionado !== "N/A") {
+                        objetoDatosFormulario[claveColumnaReal] = valorSeleccionado;
+                    }
+                }
+            });
+            // ---------------------------------------------------------
 
             const listaErroresValidacion: string[] = [];
             const usuarioIngresado: string = usuarioEjecutor.trim();
@@ -121,7 +134,7 @@ async function main(
             } else {
                 const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
                 const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
-                
+
                 if (indiceUsuario === -1) {
                     listaErroresValidacion.push(`Firma inválida: Usuario '${usuarioIngresado}' no registrado.`);
                 } else {
@@ -140,8 +153,23 @@ async function main(
             }
 
             const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
-            const nombreCampoPrimario: string = encabezadosTabla[0];
-            const idABuscar: string = String(objetoDatosFormulario[nombreCampoPrimario] || "").trim().toUpperCase();
+            const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
+
+            // Telemetría de diagnóstico empírico para inspeccionar las claves mapeadas en memoria RAM
+            console.log("--- [SYS_DEBUG_ACTUALIZAR] ---");
+            console.log("Nombre Campo Primario esperado en BBDD:", nombreCampoPrimario);
+            console.log("Objeto Datos Formulario completo:", JSON.stringify(objetoDatosFormulario));
+
+            // Resolución robusta: Busca el ID tanto en la clave primaria directa como en su equivalente BUSQUEDA_
+            let idABuscar: string = String(objetoDatosFormulario[nombreCampoPrimario] || "").trim().toUpperCase();
+            if (!idABuscar || idABuscar === "N/A") {
+                const claveBusquedaAlternativa = Object.keys(objetoDatosFormulario).find(k => k.startsWith("BUSQUEDA_") && k.includes(nombreCampoPrimario.replace("ID_", "")));
+                if (claveBusquedaAlternativa) {
+                    idABuscar = String(objetoDatosFormulario[claveBusquedaAlternativa] || "").trim().toUpperCase();
+                }
+            }
+            console.log("ID a buscar resuelto:", idABuscar);
+            console.log("------------------------------");
 
             if (!idABuscar || idABuscar === "" || idABuscar === "N/A") {
                 listaErroresValidacion.push(`Se requiere un ID de ${configuracionActiva.etiqueta} válido para actualizar.`);
@@ -183,7 +211,7 @@ async function main(
                                 listaErroresValidacion.push(`Conflicto de concurrencia (Lost Update): El registro fue modificado por otro usuario en la sesión. Vuelva a buscar el registro para actualizar su vista.`);
                             }
                         }
-                        
+
                         // --- 4. DETECCIÓN DE CAMBIOS Y REGLAS DE NEGOCIO ---
                         const valoresFilaOriginal: ValorCelda[] = [...matrizValoresDB[indiceFilaEncontrada]];
                         const logDeCambios: string[] = [];
@@ -197,20 +225,20 @@ async function main(
 
                         encabezadosTabla.forEach((header: string, colIdx: number) => {
                             if (["AUDIT_TRAIL", "ESTADO", "USUARIO", nombreCampoPrimario].includes(header)) return;
-                            
+
                             if (objetoDatosFormulario.hasOwnProperty(header)) {
-                                const textoOriginal: string = matrizTextosDB[indiceFilaEncontrada][colIdx]; 
-                                const valorNuevo: string = String(objetoDatosFormulario[header]);        
+                                const textoOriginal: string = matrizTextosDB[indiceFilaEncontrada][colIdx];
+                                const valorNuevo: string = String(objetoDatosFormulario[header]);
                                 let textoNuevoFormateado: string = "";
                                 let esCambioReal: boolean = false;
 
                                 if (header.includes("FECHA") && valorNuevo !== "N/A" && valorNuevo !== "") {
                                     const fechaOriginalEstandarizada: string = auxiliarFormatearFechaAString(textoOriginal);
                                     const fechaNuevaEstandarizada: string = auxiliarFormatearFechaAString(valorNuevo);
-        
+
                                     if (fechaOriginalEstandarizada !== fechaNuevaEstandarizada) {
                                         esCambioReal = true;
-                                        textoNuevoFormateado = fechaNuevaEstandarizada; 
+                                        textoNuevoFormateado = fechaNuevaEstandarizada;
                                     }
                                 } else {
                                     textoNuevoFormateado = valorNuevo;
@@ -235,10 +263,10 @@ async function main(
                         }
 
                         // --- VI. MOTOR DE REGLAS DINÁMICO (BATCHING I/O Y EVALUACIÓN EN RAM) ---
-                        
+
                         // 1. Elevación de Variables (Hoisting para Event Sourcing)
                         const reglasAplicables: ValorCelda[][] = [];
-                        const reglasEventos: ValorCelda[][] = []; 
+                        const reglasEventos: ValorCelda[][] = [];
                         const diccionarioTablasAuxiliares: { [nombreTabla: string]: { encabezados: string[], datos: ValorCelda[][], maxIdEvento?: number } } = {};
 
                         const tablaReglasMaestra = hojaMaestrosWS.getTable("TablaReglas");
@@ -247,16 +275,16 @@ async function main(
 
                             matrizReglasTodas.forEach((regla: ValorCelda[]) => {
                                 const entidadRegla: string = String(regla[0]).toUpperCase();
-                                
+
                                 if (configuracionActiva.tabla.toUpperCase().includes(entidadRegla)) {
                                     reglasAplicables.push(regla);
-                                    
+
                                     const operador: string = String(regla[2]);
                                     const referenciaRaw: string = String(regla[3]);
 
                                     if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A") {
                                         const nombreTablaRequerida: string = referenciaRaw.split("[")[0];
-                                        
+
                                         if (nombreTablaRequerida && !diccionarioTablasAuxiliares[nombreTablaRequerida]) {
                                             const tablaAuxiliar = workbook.getTable(nombreTablaRequerida);
                                             if (tablaAuxiliar) {
@@ -281,10 +309,10 @@ async function main(
                                                         maxIdObj = Math.max(...vals.map(v => Number(v[0])));
                                                     }
                                                 }
-                                                diccionarioTablasAuxiliares[nombreTablaRequerida] = { 
-                                                    encabezados: encabezadosAuxiliares, 
-                                                    datos: [], 
-                                                    maxIdEvento: maxIdObj 
+                                                diccionarioTablasAuxiliares[nombreTablaRequerida] = {
+                                                    encabezados: encabezadosAuxiliares,
+                                                    datos: [],
+                                                    maxIdEvento: maxIdObj
                                                 };
                                             }
                                         }
@@ -302,7 +330,7 @@ async function main(
                                 const valorAValidar: string = objetoDatosFormulario[claveCampoA];
 
                                 if (valorAValidar && valorAValidar !== "N/A") {
-                                    
+
                                     if (operador === "EXISTE_EN") {
                                         const partesReferencia: string[] = referenciaRaw.split("[");
                                         const nombreTabla: string = partesReferencia[0];
@@ -316,7 +344,7 @@ async function main(
                                                 if (!registroExiste) listaErroresValidacion.push(mensajeErrorRegla);
                                             }
                                         }
-                                    } 
+                                    }
                                     else if (operador === "ESTADO_DISTINTO_A") {
                                         const segmentosCondicion: string[] = referenciaRaw.split(";");
                                         if (segmentosCondicion.length === 3) {
@@ -350,14 +378,14 @@ async function main(
                                                 }
                                             }
                                         }
-                                    }else if (operador === "ES_UNICO_ALFANUMERICO") {
+                                    } else if (operador === "ES_UNICO_ALFANUMERICO") {
                                         const nombreTablaDestino: string = referenciaRaw.trim();
                                         const tablaEnMemoria = diccionarioTablasAuxiliares[nombreTablaDestino];
 
                                         if (tablaEnMemoria) {
                                             const indiceColumnaId: number = tablaEnMemoria.encabezados.indexOf(claveCampoA);
                                             const indicePK: number = tablaEnMemoria.encabezados.indexOf(nombreCampoPrimario);
-                                            
+
                                             if (indiceColumnaId !== -1 && indicePK !== -1) {
                                                 // Sanitización: Solo alfanuméricos en mayúscula
                                                 const valorNormalizadoInput: string = String(valorAValidar).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
@@ -367,10 +395,10 @@ async function main(
                                                 while (idxBusqueda < tablaEnMemoria.datos.length && !colisionDetectada) {
                                                     const valorFilaOriginal = tablaEnMemoria.datos[idxBusqueda][indiceColumnaId];
                                                     const pkFilaOriginal = String(tablaEnMemoria.datos[idxBusqueda][indicePK]).toUpperCase();
-                                                    
+
                                                     if (valorFilaOriginal && String(valorFilaOriginal) !== "N/A" && String(valorFilaOriginal) !== "") {
                                                         const valorNormalizadoDB: string = String(valorFilaOriginal).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-                                                        
+
                                                         // Exclusión del registro actual (evita falso positivo contra sí mismo)
                                                         if (valorNormalizadoDB === valorNormalizadoInput && pkFilaOriginal !== idABuscar) {
                                                             colisionDetectada = true;
@@ -386,10 +414,10 @@ async function main(
                                         }
                                     } else if (operador === "<=" || operador === ">=") {
                                         const claveCampoB: string = referenciaRaw.toUpperCase().replace(/\s/g, "_");
-                                        
+
                                         // Recuperación híbrida: Si el campo B no está en el formulario actual, se extrae de la copia original en memoria (BBDD)
                                         const valorB: string = objetoDatosFormulario[claveCampoB] !== undefined && objetoDatosFormulario[claveCampoB] !== "N/A"
-                                            ? objetoDatosFormulario[claveCampoB] 
+                                            ? objetoDatosFormulario[claveCampoB]
                                             : String(valoresFilaOriginal[encabezadosTabla.indexOf(claveCampoB)]);
 
                                         if (valorAValidar && valorB && valorAValidar !== "N/A" && valorB !== "N/A") {
@@ -418,29 +446,29 @@ async function main(
                             } else {
                                 // --- NUEVO: PREPARACIÓN DE EVENTOS DINÁMICOS (DELTA DETECTION) ---
                                 const eventosAInsertar: { tablaDestino: string, filaData: string[] }[] = [];
-                                
+
                                 reglasEventos.forEach((regla: ValorCelda[]) => {
                                     const campoFormulario: string = String(regla[1]).toUpperCase().replace(/\s/g, "_");
                                     const tablaDestino: string = String(regla[3]).trim();
                                     const idxCampoBD = encabezadosTabla.indexOf(campoFormulario);
-                                    
+
                                     if (idxCampoBD !== -1 && objetoDatosFormulario[campoFormulario] !== undefined && objetoDatosFormulario[campoFormulario] !== "N/A") {
                                         const valorNuevo = String(objetoDatosFormulario[campoFormulario]);
                                         const valorOriginal = String(valoresFilaOriginal[idxCampoBD]);
-                                        
+
                                         // Lógica Delta: Solo registra si el valor mutó realmente
                                         if (valorNuevo !== valorOriginal) {
                                             const infoTabla = diccionarioTablasAuxiliares[tablaDestino];
                                             if (infoTabla) {
                                                 infoTabla.maxIdEvento = (infoTabla.maxIdEvento || 0) + 1;
-                                                
+
                                                 const nuevaFilaEvento: string[] = infoTabla.encabezados.map((enc: string) => {
                                                     if (enc === "ID_EVENTO") return String(infoTabla.maxIdEvento);
                                                     if (enc === "FECHA_EVENTO" || enc === "FECHA") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
                                                     if (enc === "USUARIO") return usuarioIngresado;
                                                     if (enc === "MOTIVO") return motivoModificacion.trim();
-                                                    if (enc === nombreCampoPrimario) return idABuscar; 
-                                                    
+                                                    if (enc === nombreCampoPrimario) return idABuscar;
+
                                                     if (objetoDatosFormulario[enc] !== undefined && objetoDatosFormulario[enc] !== "N/A") {
                                                         return objetoDatosFormulario[enc];
                                                     }
@@ -455,16 +483,16 @@ async function main(
 
                                 tablaBaseDatos.getWorksheet().getProtection().unprotect(claveProteccion);
                                 const rangoFilaAfectada = tablaBaseDatos.getRangeBetweenHeaderAndTotal().getRow(indiceFilaEncontrada);
-                                
+
                                 // Ejecución de Escritura Atómica en RAM
                                 const filaAtómicaModificada: ValorCelda[] = [...valoresFilaOriginal];
                                 cambiosPendientes.forEach(cambio => {
                                     filaAtómicaModificada[cambio.columna] = cambio.valor;
                                 });
-                                
+
                                 const idxAuditTrail = encabezadosTabla.indexOf("AUDIT_TRAIL");
                                 if (idxAuditTrail !== -1) filaAtómicaModificada[idxAuditTrail] = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
-                                
+
                                 const idxUsuario = encabezadosTabla.indexOf("USUARIO");
                                 if (idxUsuario !== -1) filaAtómicaModificada[idxUsuario] = usuarioIngresado;
 
@@ -502,9 +530,9 @@ async function main(
                                 tablaIntegridad.getWorksheet().getProtection().unprotect(claveProteccion);
                                 const nuevoSelloBBDD: string = await generarFirmaDigital(tablaBaseDatos, salt);
                                 const nuevoSelloHistorial: string = await generarFirmaDigital(tablaHistorial, salt);
-                                
+
                                 let matrizSeg: ValorCelda[][] = tablaIntegridad.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                                
+
                                 const idxBBDD: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
                                 if (idxBBDD !== -1) matrizSeg[idxBBDD][1] = nuevoSelloBBDD;
 
@@ -535,7 +563,7 @@ async function main(
                     }
                 }
             }
-            
+
             // Consolidación de Errores UX
             if (listaErroresValidacion.length > 0) {
                 resultadoOperacion.success = false;
@@ -565,7 +593,7 @@ async function main(
         if (typeof v === "number") return v;
         const numeroSerial = Number(v);
         if (!isNaN(numeroSerial) && String(v).trim() !== "") return numeroSerial;
-        
+
         const partes: string[] = String(v).split("/");
         if (partes.length === 3) {
             const fechaObjeto = new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(partes[0]));
@@ -577,7 +605,7 @@ async function main(
     function auxiliarActualizarInterfazUX(hoja: ExcelScript.Worksheet, res: ResultadoAccion, colores: MapaColoresUX, pass: string): void {
         const itemF = hoja.getNamedItem("UI_FEEDBACK");
         const itemP = hoja.getNamedItem("UI_PREPARACION");
-        
+
         if (itemF) {
             const rf = itemF.getRange();
             const est = colores[res.logLevel];
@@ -587,10 +615,10 @@ async function main(
                 rf.getFormat().getFill().setColor(est.fondo);
                 rf.getFormat().getFont().setColor(est.texto);
                 rf.getFormat().getFont().setBold(true);
-                
-                if (itemP) { 
-                    itemP.getRange().setValue(""); 
-                    itemP.getRange().getFormat().getFill().clear(); 
+
+                if (itemP) {
+                    itemP.getRange().setValue("");
+                    itemP.getRange().getFormat().getFill().clear();
                 }
                 rf.select();
             } catch (e) {
@@ -605,12 +633,12 @@ async function main(
 
     function auxiliarProtegerHoja(hoja: ExcelScript.Worksheet | undefined, pass: string, res: ResultadoAccion): void {
         if (hoja) {
-            try { 
-                hoja.getProtection().protect({ allowAutoFilter: true }, pass); 
-            } catch (e) { 
+            try {
+                hoja.getProtection().protect({ allowAutoFilter: true }, pass);
+            } catch (e) {
                 res.success = false;
                 res.logLevel = 'ERROR';
-                res.message += ` | Falla crítica protegiendo: ${hoja.getName()}.`; 
+                res.message += ` | Falla crítica protegiendo: ${hoja.getName()}.`;
             }
         }
     }
@@ -635,7 +663,7 @@ function sha256(s: string): string {
     let a: number = 0, b: number = 0, c: number = 0, d: number = 0, e: number = 0, f: number = 0, g: number = 0, h: number = 0;
     const chrsz: number = 8;
     function safe_add(x: number, y: number): number {
-        const lsw: number = (x & 0xFFFF) + (y & 0xFFFF); 
+        const lsw: number = (x & 0xFFFF) + (y & 0xFFFF);
         const msw: number = (x >> 16) + (y >> 16) + (lsw >> 16);
         return (msw << 16) | (lsw & 0xFFFF);
     }
@@ -688,14 +716,14 @@ function auxiliarFormatearFechaAString(valor: ValorCelda): string {
         const mes: string = String(fechaObjeto.getMonth() + 1).padStart(2, '0');
         return `${dia}/${mes}/${fechaObjeto.getFullYear()}`;
     }
-    
+
     const partes: string[] = String(valor).split("/");
     if (partes.length === 3) {
         const dia: string = String(parseInt(partes[0])).padStart(2, '0');
         const mes: string = String(parseInt(partes[1])).padStart(2, '0');
         return `${dia}/${mes}/${partes[2]}`;
     }
-    
+
     return String(valor).trim();
 }
 
