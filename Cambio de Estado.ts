@@ -2,7 +2,13 @@
  * TIPOS E INTERFACES GLOBALES
  */
 type ValorCelda = string | number | boolean;
-interface ResultadoAccion { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
+interface ResultadoAccion {
+    success: boolean;
+    message: string;
+    logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO';
+    logCambios?: string[];
+}
+
 interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
 
 /**
@@ -10,11 +16,11 @@ interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
  * OBJETIVO: Gestionar cierre/reapertura (Toggle) con escaneo Top-Down de dependencias, Batching I/O y Commit Atómico.
  */
 async function main(
-  workbook: ExcelScript.Workbook,
-  usuarioEjecutor: string, 
-  idConfirmacion: string, 
-  motivoDeCambio: string, 
-  claveFirma: string
+    workbook: ExcelScript.Workbook,
+    usuarioEjecutor: string,
+    idConfirmacion: string,
+    motivoDeCambio: string,
+    claveFirma: string
 ) {
     const resultadoOperacion: ResultadoAccion = { success: true, message: "Inicio de transición", logLevel: 'INFO' };
     const PALETA_COLORES_UX: MapaColoresUX = {
@@ -71,7 +77,7 @@ async function main(
         const regBBDD = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
         const regHistorial = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
         const regUsuarios = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
-        
+
         const hashInicio: string = "INICIAR";
         const hashBBDD_Maestro: string = regBBDD ? String(regBBDD[1]) : hashInicio;
         const hashHistorial_Maestro: string = regHistorial ? String(regHistorial[1]) : hashInicio;
@@ -103,7 +109,7 @@ async function main(
                 const etiquetaLimpia: string = String(fila[0]).trim().toUpperCase();
                 if (etiquetaLimpia !== "") {
                     const claveCampo: string = etiquetaLimpia.replace("*", "").trim().replace(/\s/g, "_");
-                    const valorIngresado: ValorCelda = fila[1]; 
+                    const valorIngresado: ValorCelda = fila[1];
                     objetoDatosFormulario[claveCampo] = (valorIngresado === null || String(valorIngresado).trim() === "") ? "" : String(valorIngresado);
                 }
             });
@@ -124,7 +130,7 @@ async function main(
             } else {
                 const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
                 const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
-                
+
                 if (indiceUsuario === -1) {
                     listaErroresValidacion.push(`Firma inválida: Usuario '${usuarioIngresado}' no registrado.`);
                 } else {
@@ -180,10 +186,49 @@ async function main(
                             }
                         } else {
                             // Comportamiento Toggle (Interruptor binario inferido desde el Diccionario)
-                            nuevoEstado = (estadoActual === configuracionActiva.estadoInicial) 
-                                ? configuracionActiva.estadosBloqueantes[0] 
+                            nuevoEstado = (estadoActual === configuracionActiva.estadoInicial)
+                                ? configuracionActiva.estadosBloqueantes[0]
                                 : configuracionActiva.estadoInicial;
                         }
+
+                        // =====================================================================
+                        // --- MOTOR DE AUTORIZACIÓN (ACL - ZERO TRUST) ---
+                        // =====================================================================
+                        let transaccionRequerida = "CAMBIO_ESTADO";
+                        if (nuevoEstado === "BAJA" || nuevoEstado === "DADO DE BAJA") {
+                            transaccionRequerida = "BAJA";
+                        } else if (nuevoEstado === "ANULADO" || nuevoEstado === "ANULACION") {
+                            transaccionRequerida = "ANULACION";
+                        }
+
+                        const tablaPermisos = workbook.getTable("TablaPermisos");
+                        if (!tablaPermisos) {
+                            throw new Error("Integridad fallida: TablaPermisos no localizada en el repositorio local.");
+                        }
+
+                        const matrizACL = tablaPermisos.getRangeBetweenHeaderAndTotal().getTexts();
+                        let idxPermiso = 0;
+                        let autorizacionConcedida = false;
+
+                        while (idxPermiso < matrizACL.length && !autorizacionConcedida) {
+                            const usuarioBase = String(matrizACL[idxPermiso][0]).trim().toUpperCase();
+                            const transaccionBase = String(matrizACL[idxPermiso][1]).trim().toUpperCase();
+                            const estadoAcceso = String(matrizACL[idxPermiso][2]).trim().toUpperCase();
+
+                            const usuarioCoincide = (usuarioBase === usuarioIngresado.toUpperCase());
+                            const transaccionCoincide = (transaccionBase === transaccionRequerida || transaccionBase === "*");
+                            const accesoPermitido = (estadoAcceso === "CONCEDIDO");
+
+                            if (usuarioCoincide && transaccionCoincide && accesoPermitido) {
+                                autorizacionConcedida = true;
+                            }
+                            idxPermiso++;
+                        }
+
+                        if (!autorizacionConcedida) {
+                            listaErroresValidacion.push(`ACCESO DENEGADO: El usuario ${usuarioIngresado} no posee privilegios para la transacción [${transaccionRequerida}].`);
+                        }
+                        // =====================================================================
 
                         // --- 5. MOTOR DE REGLAS: INTEGRIDAD TOP-DOWN (BATCHING I/O) ---
                         // Validamos reglas de dependencias solo si vamos hacia un estado bloqueante
@@ -201,7 +246,7 @@ async function main(
                                         if (operador === "DEPENDENCIAS_CERRADAS") {
                                             reglasDependencias.push(regla);
                                             const nombreTablaRequerida: string = String(regla[3]).split("[")[0];
-                                            
+
                                             if (nombreTablaRequerida && !diccionarioTablasAuxiliares[nombreTablaRequerida]) {
                                                 const tablaAuxiliar = workbook.getTable(nombreTablaRequerida);
                                                 if (tablaAuxiliar) {
@@ -219,7 +264,7 @@ async function main(
                                 reglasDependencias.forEach((regla: ValorCelda[]) => {
                                     const referenciaRaw: string = String(regla[3]);
                                     const mensajeErrorRegla: string = String(regla[4]);
-                                    
+
                                     const [nombreTablaRef, parteColumna] = referenciaRaw.split("[");
                                     const nombreColumnaRef: string = parteColumna.replace("]", "");
                                     const tablaEnMemoria = diccionarioTablasAuxiliares[nombreTablaRef];
@@ -230,13 +275,11 @@ async function main(
 
                                         if (idxForanea !== -1 && idxEstadoRef !== -1) {
                                             // Determinar el estado inicial dinámicamente de la dependencia
-                                            let estadoInicialDependencia = "ABIERTO";
-                                            for (const key in CONFIGURACION_ENTIDADES) {
-                                                if (CONFIGURACION_ENTIDADES[key].tabla === nombreTablaRef) {
-                                                    estadoInicialDependencia = CONFIGURACION_ENTIDADES[key].estadoInicial;
-                                                    break;
-                                                }
-                                            }
+                                            const configuracionReferencia = Object.keys(CONFIGURACION_ENTIDADES)
+                                                .map(k => CONFIGURACION_ENTIDADES[k])
+                                                .find(c => c.tabla === nombreTablaRef);
+
+                                            const estadoInicialDependencia = configuracionReferencia ? configuracionReferencia.estadoInicial : "ABIERTO";
 
                                             const tieneDependenciaAbierta: boolean = tablaEnMemoria.datos.some((filaRef: ValorCelda[]) => {
                                                 return String(filaRef[idxForanea]).toUpperCase() === idABuscar && String(filaRef[idxEstadoRef]).toUpperCase() === estadoInicialDependencia;
@@ -263,7 +306,7 @@ async function main(
                             filaAtomicaModificada[idxEstado] = nuevoEstado;
                             if (idxUsuario !== -1) filaAtomicaModificada[idxUsuario] = usuarioIngresado;
                             if (idxAuditTrail !== -1) filaAtomicaModificada[idxAuditTrail] = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
-                            
+
                             tablaBaseDatos.getRangeBetweenHeaderAndTotal().getRow(indiceFilaEncontrada).setValues([filaAtomicaModificada]);
 
                             // Registro en Historial
@@ -280,6 +323,53 @@ async function main(
                             });
                             tablaHistorial.addRow(-1, filaRegistroHistorial);
 
+                            // =====================================================================
+                            // --- TRIGGER DE NOTIFICACIÓN ASÍNCRONA: CAMBIO DE ESTADO ---
+                            // =====================================================================
+
+                            // 1. Clasificación estricta basada en el motor de estados (Backend Authority)
+                            let transaccionDetectada: TipoTransaccion = "CAMBIO_ESTADO";
+
+                            if (nuevoEstado === "BAJA" || nuevoEstado === "DADO DE BAJA") {
+                                transaccionDetectada = "BAJA";
+                            } else if (nuevoEstado === "ANULADO" || nuevoEstado === "ANULACION") {
+                                transaccionDetectada = "ANULACION";
+                            }
+
+                            // 2. Construcción del Payload de Fila (Single Source of Truth)
+                            const diccionarioFilaActualizada: { [key: string]: string } = {};
+
+                            encabezadosTabla.forEach((header: string, index: number) => {
+                                // Lectura del vector atómico persistido
+                                let valorFinal = filaAtomicaModificada[index] !== undefined
+                                    ? String(filaAtomicaModificada[index])
+                                    : "N/A";
+
+                                // Formateo dinámico de fechas crudas (Serial a DD/MM/YYYY)
+                                if (header.includes("FECHA") && valorFinal !== "N/A" && valorFinal !== "") {
+                                    valorFinal = auxiliarFormatearFechaAString(valorFinal);
+                                }
+
+                                diccionarioFilaActualizada[header] = valorFinal;
+                            });
+
+                            // 3. Inyección explícita del MOTIVO y Documentación del Delta
+                            diccionarioFilaActualizada["MOTIVO_CAMBIO_ESTADO"] = motivoDeCambio.trim();
+                            const registroDelta = `ESTADO: [${estadoActual}] -> [${nuevoEstado}]`;
+
+                            const payloadActualizacion: PayloadNotificacion = {
+                                entidad: configuracionActiva.tabla.replace("Tabla", "").toUpperCase(),
+                                transaccion: transaccionDetectada,
+                                idRegistro: idABuscar,
+                                usuario: usuarioIngresado,
+                                fechaHora: new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false }),
+                                datosFila: diccionarioFilaActualizada,
+                                logCambios: [registroDelta] // Granularidad exacta para el PDF
+                            };
+
+                            auxiliarEncolarNotificacion(workbook, payloadActualizacion, claveProteccion);
+                            // =====================================================================
+
                             const verboOperacion = nuevoEstado === configuracionActiva.estadoInicial ? "reabiert" : "modificad";
                             resultadoOperacion.message = `✅ ${configuracionActiva.etiqueta.charAt(0).toUpperCase() + configuracionActiva.etiqueta.slice(1)} #${idABuscar} ${verboOperacion}${configuracionActiva.genero} a [${nuevoEstado}] con éxito.`;
                             resultadoOperacion.logLevel = 'EXITO';
@@ -290,7 +380,7 @@ async function main(
                             tablaIntegridad.getWorksheet().getProtection().unprotect(claveProteccion);
                             const nuevoSelloBBDD: string = await generarFirmaDigital(tablaBaseDatos, salt);
                             const nuevoSelloHistorial: string = await generarFirmaDigital(tablaHistorial, salt);
-                            
+
                             let matrizSeg: ValorCelda[][] = tablaIntegridad.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
                             const idxBBDD: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
                             if (idxBBDD !== -1) matrizSeg[idxBBDD][1] = nuevoSelloBBDD;
@@ -309,7 +399,7 @@ async function main(
                     }
                 }
             }
-            
+
             // Consolidación de Errores UX
             if (listaErroresValidacion.length > 0) {
                 resultadoOperacion.success = false;
@@ -338,7 +428,7 @@ async function main(
     function auxiliarActualizarInterfazUX(hoja: ExcelScript.Worksheet, res: ResultadoAccion, colores: MapaColoresUX, pass: string): void {
         const itemF = hoja.getNamedItem("UI_FEEDBACK");
         const itemP = hoja.getNamedItem("UI_PREPARACION");
-        
+
         if (itemF) {
             const rf = itemF.getRange();
             const est = colores[res.logLevel];
@@ -348,10 +438,10 @@ async function main(
                 rf.getFormat().getFill().setColor(est.fondo);
                 rf.getFormat().getFont().setColor(est.texto);
                 rf.getFormat().getFont().setBold(true);
-                
-                if (itemP) { 
-                    itemP.getRange().setValue(""); 
-                    itemP.getRange().getFormat().getFill().clear(); 
+
+                if (itemP) {
+                    itemP.getRange().setValue("");
+                    itemP.getRange().getFormat().getFill().clear();
                 }
                 rf.select();
             } catch (e) {
@@ -367,10 +457,10 @@ async function main(
     function auxiliarProtegerHoja(hoja: ExcelScript.Worksheet | undefined, pass: string, res: ResultadoAccion): void {
         if (hoja) {
             try { hoja.getProtection().protect({ allowAutoFilter: true }, pass); }
-            catch (e) { 
+            catch (e) {
                 res.success = false;
                 res.logLevel = 'ERROR';
-                res.message += ` | Falla protegiendo: ${hoja.getName()}`; 
+                res.message += ` | Falla protegiendo: ${hoja.getName()}`;
             }
         }
     }
@@ -395,7 +485,7 @@ function sha256(s: string): string {
     let a: number = 0, b: number = 0, c: number = 0, d: number = 0, e: number = 0, f: number = 0, g: number = 0, h: number = 0;
     const chrsz: number = 8;
     function safe_add(x: number, y: number): number {
-        const lsw: number = (x & 0xFFFF) + (y & 0xFFFF); 
+        const lsw: number = (x & 0xFFFF) + (y & 0xFFFF);
         const msw: number = (x >> 16) + (y >> 16) + (lsw >> 16);
         return (msw << 16) | (lsw & 0xFFFF);
     }
@@ -437,4 +527,97 @@ function sha256(s: string): string {
         return str;
     }
     return binb2hex(core_sha256(str2binb(s), s.length * chrsz));
+}
+
+// --- INTERFACES DE NOTIFICACIÓN ---
+type TipoTransaccion = 'CREACION' | 'MODIFICACION' | 'CAMBIO_ESTADO' | 'ANULACION' | 'BAJA';
+
+interface PayloadNotificacion {
+    entidad: string;
+    transaccion: TipoTransaccion;
+    idRegistro: string;
+    usuario: string;
+    fechaHora: string;
+    datosFila: { [key: string]: string };
+    logCambios: string[];
+}
+
+// --- HELPER DE MENSAJERÍA (SESE & Fail-Safe) ---
+function auxiliarEncolarNotificacion(
+    workbook: ExcelScript.Workbook,
+    payload: PayloadNotificacion,
+    claveProteccion: string
+): void {
+    try {
+        const tablaOutbox = workbook.getTable("TablaNotificaciones_Outbox");
+
+        if (tablaOutbox) {
+            let textoDetalleCompleto: string = "";
+            const clavesDatos = Object.keys(payload.datosFila);
+            let idxDatos = 0;
+
+            while (idxDatos < clavesDatos.length) {
+                const clave = clavesDatos[idxDatos];
+                textoDetalleCompleto += `${clave.replace(/_/g, " ")}: ${payload.datosFila[clave]}\n`;
+                idxDatos++;
+            }
+
+            let textoResumenCambios: string = "";
+            if (payload.logCambios && payload.logCambios.length > 0) {
+                let idxLog = 0;
+                while (idxLog < payload.logCambios.length) {
+                    textoResumenCambios += `${payload.logCambios[idxLog]}\n`;
+                    idxLog++;
+                }
+            } else {
+                textoResumenCambios = "No se detectaron modificaciones específicas. (Alta/Creación)";
+            }
+
+            const paqueteJSON = JSON.stringify({
+                Entidad: payload.entidad,
+                Transaccion: payload.transaccion,
+                Firma: `${payload.usuario} - ${payload.fechaHora}`,
+                ResumenCambios: textoResumenCambios.trim(),
+                DetalleCompleto: textoDetalleCompleto.trim()
+            });
+
+            const idMensaje = `MSG-${new Date().getTime()}`;
+            const nuevaFila = [
+                idMensaje,
+                payload.fechaHora,
+                "PENDIENTE",
+                paqueteJSON
+            ];
+
+            const hojaOutbox = tablaOutbox.getWorksheet();
+            hojaOutbox.getProtection().unprotect(claveProteccion);
+            tablaOutbox.addRow(-1, nuevaFila);
+            // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
+            // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+        } else {
+            console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
+        }
+    } catch (errorOutbox) {
+        console.log(`[SYS_WARNING] Falla aislada al encolar notificación: ${(errorOutbox as Error).message}`);
+    }
+}
+
+function auxiliarFormatearFechaAString(valor: ValorCelda): string {
+    const numeroSerial = Number(valor);
+    if (!isNaN(numeroSerial) && String(valor).trim() !== "") {
+        const milisegundos: number = Math.round((numeroSerial - 25569) * 86400 * 1000) + 43200000;
+        const fechaObjeto = new Date(milisegundos);
+        const dia: string = String(fechaObjeto.getDate()).padStart(2, '0');
+        const mes: string = String(fechaObjeto.getMonth() + 1).padStart(2, '0');
+        return `${dia}/${mes}/${fechaObjeto.getFullYear()}`;
+    }
+
+    const partes: string[] = String(valor).split("/");
+    if (partes.length === 3) {
+        const dia: string = String(parseInt(partes[0])).padStart(2, '0');
+        const mes: string = String(parseInt(partes[1])).padStart(2, '0');
+        return `${dia}/${mes}/${partes[2]}`;
+    }
+
+    return String(valor).trim();
 }

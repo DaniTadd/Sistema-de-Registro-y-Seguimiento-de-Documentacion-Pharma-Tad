@@ -2,7 +2,13 @@
  * TIPOS E INTERFACES GLOBALES
  */
 type ValorCelda = string | number | boolean;
-interface ResultadoAccion { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
+interface ResultadoAccion {
+    success: boolean;
+    message: string;
+    logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO';
+    logCambios?: string[];
+
+}
 interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
 
 /**
@@ -176,6 +182,54 @@ async function main(
                 continuarEjecucionSESE = false;
             }
 
+            // =====================================================================
+            // --- MOTOR DE AUTORIZACIÓN (ACL - ZERO TRUST) ---
+            // =====================================================================
+            if (continuarEjecucionSESE && listaErroresValidacion.length === 0) {
+                // 1. Inferencia Temprana de Transacción
+                const estadoEvaluadoACL = objetoDatosFormulario["ESTADO"] !== undefined ? String(objetoDatosFormulario["ESTADO"]).toUpperCase().trim() : "";
+                let transaccionRequerida = "MODIFICACION";
+
+                if (estadoEvaluadoACL === "BAJA" || estadoEvaluadoACL === "DADO DE BAJA") {
+                    transaccionRequerida = "BAJA";
+                } else if (estadoEvaluadoACL === "ANULADO" || estadoEvaluadoACL === "ANULACION") {
+                    transaccionRequerida = "ANULACION";
+                }
+
+                // 2. Extracción de Matriz de Permisos
+                const tablaPermisos = workbook.getTable("TablaPermisos");
+                if (!tablaPermisos) {
+                    throw new Error("Integridad fallida: TablaPermisos no localizada en el repositorio local.");
+                }
+
+                const matrizACL = tablaPermisos.getRangeBetweenHeaderAndTotal().getTexts();
+                let idxPermiso = 0;
+                let autorizacionConcedida = false;
+
+                // 3. Evaluación Lineal (Fail-Closed)
+                while (idxPermiso < matrizACL.length && !autorizacionConcedida) {
+                    const usuarioBase = String(matrizACL[idxPermiso][0]).trim().toUpperCase();
+                    const transaccionBase = String(matrizACL[idxPermiso][1]).trim().toUpperCase();
+                    const estadoAcceso = String(matrizACL[idxPermiso][2]).trim().toUpperCase();
+
+                    const usuarioCoincide = (usuarioBase === usuarioIngresado.toUpperCase());
+                    const transaccionCoincide = (transaccionBase === transaccionRequerida || transaccionBase === "*");
+                    const accesoPermitido = (estadoAcceso === "CONCEDIDO");
+
+                    if (usuarioCoincide && transaccionCoincide && accesoPermitido) {
+                        autorizacionConcedida = true;
+                    }
+                    idxPermiso++;
+                }
+
+                // 4. Compuerta Lógica
+                if (!autorizacionConcedida) {
+                    listaErroresValidacion.push(`ACCESO DENEGADO: El usuario ${usuarioIngresado} no posee privilegios para la transacción [${transaccionRequerida}].`);
+                    continuarEjecucionSESE = false;
+                }
+            }
+            // =====================================================================
+
             if (continuarEjecucionSESE && listaErroresValidacion.length === 0) {
                 const matrizValoresDB: ValorCelda[][] = tablaBaseDatos.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
                 const matrizTextosDB: string[][] = tablaBaseDatos.getRangeBetweenHeaderAndTotal().getTexts();
@@ -282,7 +336,7 @@ async function main(
                                     const operador: string = String(regla[2]);
                                     const referenciaRaw: string = String(regla[3]);
 
-                                    if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A") {
+                                    if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A" || operador === "ES_UNICO_ALFANUMERICO") {
                                         const nombreTablaRequerida: string = referenciaRaw.split("[")[0];
 
                                         if (nombreTablaRequerida && !diccionarioTablasAuxiliares[nombreTablaRequerida]) {
@@ -522,6 +576,53 @@ async function main(
                                 });
                                 // ---------------------------------------
 
+                                // =====================================================================
+                                // --- TRIGGER DE NOTIFICACIÓN ASÍNCRONA: ACTUALIZAR (MODIFICACIÓN/BAJA) ---
+                                // =====================================================================
+
+                                const idRecibido = idABuscar;
+                                const estadoEvaluado = objetoDatosFormulario["ESTADO"] !== undefined ? String(objetoDatosFormulario["ESTADO"]).toUpperCase().trim() : "";
+
+                                let transaccionDetectada: TipoTransaccion = "MODIFICACION";
+
+                                if (estadoEvaluado === "BAJA" || estadoEvaluado === "DADO DE BAJA") {
+                                    transaccionDetectada = "BAJA";
+                                } else if (estadoEvaluado === "ANULADO" || estadoEvaluado === "ANULACION") {
+                                    transaccionDetectada = "ANULACION";
+                                }
+
+                                const diccionarioFilaActualizada: { [key: string]: string } = {};
+
+                                // 1. Lectura del Vector Atómico (Single Source of Truth)
+                                encabezadosTabla.forEach((header: string, index: number) => {
+                                    let valorFinal = filaAtómicaModificada[index] !== undefined
+                                        ? String(filaAtómicaModificada[index])
+                                        : "N/A";
+
+                                    // 2. Formateo dinámico de fechas crudas (Serial a DD/MM/YYYY)
+                                    if (header.includes("FECHA") && valorFinal !== "N/A" && valorFinal !== "") {
+                                        valorFinal = auxiliarFormatearFechaAString(valorFinal);
+                                    }
+
+                                    diccionarioFilaActualizada[header] = valorFinal;
+                                });
+
+                                // 3. Inyección explícita del MOTIVO (No es columna de la BBDD matriz, pero se exige en el reporte)
+                                diccionarioFilaActualizada["MOTIVO_MODIFICACION"] = motivoModificacion.trim();
+
+                                const payloadActualizacion: PayloadNotificacion = {
+                                    entidad: configuracionActiva.tabla.replace("Tabla", "").toUpperCase(),
+                                    transaccion: transaccionDetectada,
+                                    idRegistro: idRecibido,
+                                    usuario: usuarioIngresado,
+                                    fechaHora: new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false }),
+                                    datosFila: diccionarioFilaActualizada,
+                                    logCambios: logDeCambios.length > 0 ? logDeCambios : ["Modificación general de atributos sin diferencias detectadas."]
+                                };
+
+                                auxiliarEncolarNotificacion(workbook, payloadActualizacion, claveProteccion);
+                                // =====================================================================
+
                                 resultadoOperacion.message = `✅ ${idABuscar} actualizad${configuracionActiva.genero} con éxito.`;
                                 resultadoOperacion.logLevel = 'EXITO';
                                 auxiliarLimpiarFormulario(hojaEntradaWS, matrizDatosFormulario, indiceFilaInicial, nombreCampoPrimario);
@@ -727,3 +828,75 @@ function auxiliarFormatearFechaAString(valor: ValorCelda): string {
     return String(valor).trim();
 }
 
+// --- INTERFACES DE NOTIFICACIÓN ---
+type TipoTransaccion = 'CREACION' | 'MODIFICACION' | 'CAMBIO_ESTADO' | 'ANULACION' | 'BAJA';
+
+interface PayloadNotificacion {
+    entidad: string;
+    transaccion: TipoTransaccion;
+    idRegistro: string;
+    usuario: string;
+    fechaHora: string;
+    datosFila: { [key: string]: string };
+    logCambios: string[];
+}
+
+// --- HELPER DE MENSAJERÍA (SESE & Fail-Safe) ---
+function auxiliarEncolarNotificacion(
+    workbook: ExcelScript.Workbook,
+    payload: PayloadNotificacion,
+    claveProteccion: string
+): void {
+    try {
+        const tablaOutbox = workbook.getTable("TablaNotificaciones_Outbox");
+
+        if (tablaOutbox) {
+            let textoDetalleCompleto: string = "";
+            const clavesDatos = Object.keys(payload.datosFila);
+            let idxDatos = 0;
+
+            while (idxDatos < clavesDatos.length) {
+                const clave = clavesDatos[idxDatos];
+                textoDetalleCompleto += `${clave.replace(/_/g, " ")}: ${payload.datosFila[clave]}\n`;
+                idxDatos++;
+            }
+
+            let textoResumenCambios: string = "";
+            if (payload.logCambios && payload.logCambios.length > 0) {
+                let idxLog = 0;
+                while (idxLog < payload.logCambios.length) {
+                    textoResumenCambios += `${payload.logCambios[idxLog]}\n`;
+                    idxLog++;
+                }
+            } else {
+                textoResumenCambios = "No se detectaron modificaciones específicas. (Alta/Creación)";
+            }
+
+            const paqueteJSON = JSON.stringify({
+                Entidad: payload.entidad,
+                Transaccion: payload.transaccion,
+                Firma: `${payload.usuario} - ${payload.fechaHora}`,
+                ResumenCambios: textoResumenCambios.trim(),
+                DetalleCompleto: textoDetalleCompleto.trim()
+            });
+
+            const idMensaje = `MSG-${new Date().getTime()}`;
+            const nuevaFila = [
+                idMensaje,
+                payload.fechaHora,
+                "PENDIENTE",
+                paqueteJSON
+            ];
+
+            const hojaOutbox = tablaOutbox.getWorksheet();
+            hojaOutbox.getProtection().unprotect(claveProteccion);
+            tablaOutbox.addRow(-1, nuevaFila);
+            // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
+            // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+        } else {
+            console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
+        }
+    } catch (errorOutbox) {
+        console.log(`[SYS_WARNING] Falla aislada al encolar notificación: ${(errorOutbox as Error).message}`);
+    }
+}

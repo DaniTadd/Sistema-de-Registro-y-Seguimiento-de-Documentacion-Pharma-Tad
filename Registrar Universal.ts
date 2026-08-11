@@ -17,6 +17,19 @@ type ValorCelda = string | number | boolean;
 interface ResultadoAccion { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
 interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
 
+// --- INTERFACES DE NOTIFICACIÓN ---
+type TipoTransaccion = 'CREACION' | 'MODIFICACION' | 'CAMBIO_ESTADO' | 'ANULACION' | 'BAJA';
+
+interface PayloadNotificacion {
+    entidad: string;
+    transaccion: TipoTransaccion;
+    idRegistro: string;
+    usuario: string;
+    fechaHora: string;
+    datosFila: { [key: string]: string };
+    logCambios?: string[];
+}
+
 async function main(
     workbook: ExcelScript.Workbook,
     usuarioEjecutor: string,
@@ -165,6 +178,38 @@ async function main(
                 }
             }
 
+            const transaccionOperativa: TipoTransaccion = "CREACION";
+
+            // =====================================================================
+            // --- MOTOR DE AUTORIZACIÓN (ACL - ZERO TRUST) ---
+            // =====================================================================
+            if (continuarEjecucionSESE && listaErroresValidacion.length === 0) {
+                const tablaPermisos = workbook.getTable("TablaPermisos");
+                if (!tablaPermisos) throw new Error("Integridad fallida: TablaPermisos no localizada.");
+
+                const matrizACL = tablaPermisos.getRangeBetweenHeaderAndTotal().getTexts();
+                let idxPermiso = 0;
+                let autorizacionConcedida = false;
+
+                while (idxPermiso < matrizACL.length && !autorizacionConcedida) {
+                    const usuarioBase = String(matrizACL[idxPermiso][0]).trim().toUpperCase();
+                    const transaccionBase = String(matrizACL[idxPermiso][1]).trim().toUpperCase();
+                    const estadoAcceso = String(matrizACL[idxPermiso][2]).trim().toUpperCase();
+
+                    if (usuarioBase === usuarioIngresado.toUpperCase() &&
+                        (transaccionBase === transaccionOperativa || transaccionBase === "*") &&
+                        estadoAcceso === "CONCEDIDO") {
+                        autorizacionConcedida = true;
+                    }
+                    idxPermiso++;
+                }
+
+                if (!autorizacionConcedida) {
+                    listaErroresValidacion.push(`ACCESO DENEGADO: El usuario no posee privilegios para [${transaccionOperativa}].`);
+                    continuarEjecucionSESE = false;
+                }
+            }
+
             const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
             const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
 
@@ -197,7 +242,7 @@ async function main(
                         const operador: string = String(regla[2]);
                         const referenciaRaw: string = String(regla[3]);
 
-                        if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A") {
+                        if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A" || operador === "ES_UNICO_ALFANUMERICO") {
                             const nombreTablaRequerida: string = referenciaRaw.split("[")[0];
 
                             // Si la tabla no está en RAM, se realiza la petición I/O
@@ -334,6 +379,23 @@ async function main(
                                 }
                             }
                         }
+                        else if (operador === "<=" || operador === ">=") {
+                            const claveCampoB: string = referenciaRaw.toUpperCase().replace(/\s/g, "_");
+                            const valorB: string = objetoDatosFormulario[claveCampoB];
+
+                            if (valorAValidar && valorB && valorAValidar !== "N/A" && valorB !== "N/A") {
+                                const fechaA: number = auxiliarParsearFechaANumero(valorAValidar);
+                                const fechaB: number = auxiliarParsearFechaANumero(valorB);
+
+                                if (isNaN(fechaA) || isNaN(fechaB)) {
+                                    listaErroresValidacion.push(`Error: Formato de fecha inválido comparando reglas para ${campoA.replace(/_/g, " ")}.`);
+                                } else if (operador === "<=" && !(fechaA <= fechaB)) {
+                                    listaErroresValidacion.push(mensajeErrorRegla);
+                                } else if (operador === ">=" && !(fechaA >= fechaB)) {
+                                    listaErroresValidacion.push(mensajeErrorRegla);
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -388,6 +450,7 @@ async function main(
                 tablaBaseDatos.getWorksheet().getProtection().unprotect(claveProteccion);
                 const filaBD: string[] = encabezadosTabla.map((enc: string) => {
                     if (enc === nombreCampoPrimario) return idGeneradoFinal;
+                    if (enc === "USUARIO") return usuarioIngresado;
                     if (enc === "ESTADO") return configuracionActiva.estadoInicial;
                     if (enc === "AUDIT_TRAIL") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
                     return objetoDatosFormulario[enc] || "N/A";
@@ -458,6 +521,37 @@ async function main(
                         }
                     });
                     // ---------------------------------------
+                    // =====================================================================
+                    // --- TRIGGER DE NOTIFICACIÓN ASÍNCRONA: REGISTRAR (ALTA) ---
+                    // =====================================================================
+
+                    const diccionarioFilaNueva: { [key: string]: string } = {};
+
+                    encabezadosTabla.forEach((header: string, index: number) => {
+                        let valorFinal = filaBD[index] !== undefined ? String(filaBD[index]) : "N/A";
+
+                        if (header.includes("FECHA") && valorFinal !== "N/A" && valorFinal !== "") {
+                            valorFinal = auxiliarFormatearFechaAString(valorFinal);
+                        }
+
+                        diccionarioFilaNueva[header] = valorFinal;
+                    });
+                    diccionarioFilaNueva["MOTIVO_REGISTRO"] = "Registro inicial del sistema.";
+                    // Forzamos la inyección del ID calculado por el motor del backend
+                    diccionarioFilaNueva[nombreCampoPrimario] = idGeneradoFinal;
+
+                    const payloadCreacion: PayloadNotificacion = {
+                        entidad: configuracionActiva.tabla.replace("Tabla", "").toUpperCase(),
+                        transaccion: "CREACION",
+                        idRegistro: idGeneradoFinal,
+                        usuario: usuarioIngresado,
+                        fechaHora: new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false }),
+                        datosFila: diccionarioFilaNueva,
+                        logCambios: ["Registro inicial creado exitosamente."]
+                    };
+
+                    auxiliarEncolarNotificacion(workbook, payloadCreacion, claveProteccion);
+                    // =====================================================================
 
                     resultadoOperacion.message = `✅ ${configuracionActiva.articulo.toUpperCase()} ${configuracionActiva.etiqueta.toUpperCase()} #${idGeneradoFinal} se ha sellado digitalmente.`;
                     resultadoOperacion.logLevel = 'EXITO';
@@ -635,4 +729,85 @@ function sha256(s: string): string {
     }
     return binb2hex(core_sha256(str2binb(s), s.length * chrsz));
 
+}
+
+
+// --- HELPER DE MENSAJERÍA (SESE & Fail-Safe) ---
+function auxiliarEncolarNotificacion(
+    workbook: ExcelScript.Workbook,
+    payload: PayloadNotificacion,
+    claveProteccion: string
+): void {
+    try {
+        const tablaOutbox = workbook.getTable("TablaNotificaciones_Outbox");
+
+        if (tablaOutbox) {
+            let textoDetalleCompleto: string = "";
+            const clavesDatos = Object.keys(payload.datosFila);
+            let idxDatos = 0;
+
+            while (idxDatos < clavesDatos.length) {
+                const clave = clavesDatos[idxDatos];
+                textoDetalleCompleto += `${clave.replace(/_/g, " ")}: ${payload.datosFila[clave]}\n`;
+                idxDatos++;
+            }
+
+            let textoResumenCambios: string = "";
+            if (payload.logCambios && payload.logCambios.length > 0) {
+                let idxLog = 0;
+                while (idxLog < payload.logCambios.length) {
+                    textoResumenCambios += `${payload.logCambios[idxLog]}\n`;
+                    idxLog++;
+                }
+            } else {
+                textoResumenCambios = "No se detectaron modificaciones específicas. (Alta/Creación)";
+            }
+
+            const paqueteJSON = JSON.stringify({
+                Entidad: payload.entidad,
+                Transaccion: payload.transaccion,
+                Firma: `${payload.usuario} - ${payload.fechaHora}`,
+                ResumenCambios: textoResumenCambios.trim(),
+                DetalleCompleto: textoDetalleCompleto.trim()
+            });
+
+            const idMensaje = `MSG-${new Date().getTime()}`;
+            const nuevaFila = [
+                idMensaje,
+                payload.fechaHora,
+                "PENDIENTE",
+                paqueteJSON
+            ];
+
+            const hojaOutbox = tablaOutbox.getWorksheet();
+            hojaOutbox.getProtection().unprotect(claveProteccion);
+            tablaOutbox.addRow(-1, nuevaFila);
+            // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
+            // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+        } else {
+            console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
+        }
+    } catch (errorOutbox) {
+        console.log(`[SYS_WARNING] Falla aislada al encolar notificación: ${(errorOutbox as Error).message}`);
+    }
+}
+
+function auxiliarFormatearFechaAString(valor: ValorCelda): string {
+    const numeroSerial = Number(valor);
+    if (!isNaN(numeroSerial) && String(valor).trim() !== "") {
+        const milisegundos: number = Math.round((numeroSerial - 25569) * 86400 * 1000) + 43200000;
+        const fechaObjeto = new Date(milisegundos);
+        const dia: string = String(fechaObjeto.getDate()).padStart(2, '0');
+        const mes: string = String(fechaObjeto.getMonth() + 1).padStart(2, '0');
+        return `${dia}/${mes}/${fechaObjeto.getFullYear()}`;
+    }
+
+    const partes: string[] = String(valor).split("/");
+    if (partes.length === 3) {
+        const dia: string = String(parseInt(partes[0])).padStart(2, '0');
+        const mes: string = String(parseInt(partes[1])).padStart(2, '0');
+        return `${dia}/${mes}/${partes[2]}`;
+    }
+
+    return String(valor).trim();
 }

@@ -2,7 +2,12 @@
  * TIPOS E INTERFACES GLOBALES
  */
 type ValorCelda = string | number | boolean;
-interface ResultadoAccion { success: boolean; message: string; logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO'; }
+interface ResultadoAccion {
+  success: boolean;
+  message: string;
+  logLevel: 'EXITO' | 'ERROR' | 'WARN' | 'INFO';
+  logCambios?: string[];
+}
 interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
 
 /**
@@ -11,9 +16,9 @@ interface MapaColoresUX { [key: string]: { fondo: string; texto: string } }
  */
 async function main(
   workbook: ExcelScript.Workbook,
-  usuarioEjecutor: string, 
-  idConfirmacion: string, 
-  motivoDeAnulacion: string, 
+  usuarioEjecutor: string,
+  idConfirmacion: string,
+  motivoDeAnulacion: string,
   claveFirma: string
 ) {
   const resultadoOperacion: ResultadoAccion = { success: true, message: "Inicio de proceso de anulación", logLevel: 'INFO' };
@@ -31,7 +36,7 @@ async function main(
   let tablaIntegridad: ExcelScript.Table | undefined;
   let hojaMaestrosWS: ExcelScript.Worksheet | undefined;
   let claveProteccion: string = "";
-  
+
   // Recolector RAM para sellado seguro en bloque finally (Evita I/O lookup)
   let tablasHijasModificadas: ExcelScript.Table[] = [];
 
@@ -39,16 +44,16 @@ async function main(
     // --- 1. DETECCIÓN DEL MÓDULO E INFRAESTRUCTURA ---
     const nombreHojaActiva: string = workbook.getActiveWorksheet().getName();
     const CONFIGURACION_ENTIDADES: { [key: string]: { tabla: string, historial: string, prefijo: string, etiqueta: string, articulo: string, genero: string, estadoInicial: string, estadosBloqueantes: string[] } } = {
-            "INP_DES": { tabla: "TablaDesvios", historial: "TablaDesviosHistorial", prefijo: "SB-", etiqueta: "DESVÍO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
-            "INP_CAPAS": { tabla: "TablaCapas", historial: "TablaCapasHistorial", prefijo: "CAPA-", etiqueta: "CAPA", articulo: "la", genero: "a", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
-            "INP_AFECT": { tabla: "TablaAfectacion", historial: "TablaAfectacionHistorial", prefijo: "AF-", etiqueta: "AFECTACION", articulo: "la", genero: "a", estadoInicial: "VIGENTE", estadosBloqueantes: ["ANULADO"] },
-            "INP_REC": { tabla: "TablaReclamos", historial: "TablaReclamosHistorial", prefijo: "R-", etiqueta: "RECLAMO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
-            "INP_EQ": { tabla: "TablaEquipos", historial: "TablaEquiposHistorial", prefijo: "EQ-", etiqueta: "EQUIPO", articulo: "el", genero: "o", estadoInicial: "EN USO", estadosBloqueantes: ["DADO DE BAJA", "EN REPARACIÓN"] }
-        };
+      "INP_DES": { tabla: "TablaDesvios", historial: "TablaDesviosHistorial", prefijo: "SB-", etiqueta: "DESVÍO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+      "INP_CAPAS": { tabla: "TablaCapas", historial: "TablaCapasHistorial", prefijo: "CAPA-", etiqueta: "CAPA", articulo: "la", genero: "a", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+      "INP_AFECT": { tabla: "TablaAfectacion", historial: "TablaAfectacionHistorial", prefijo: "AF-", etiqueta: "AFECTACION", articulo: "la", genero: "a", estadoInicial: "VIGENTE", estadosBloqueantes: ["ANULADO"] },
+      "INP_REC": { tabla: "TablaReclamos", historial: "TablaReclamosHistorial", prefijo: "R-", etiqueta: "RECLAMO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+      "INP_EQ": { tabla: "TablaEquipos", historial: "TablaEquiposHistorial", prefijo: "EQ-", etiqueta: "EQUIPO", articulo: "el", genero: "o", estadoInicial: "EN USO", estadosBloqueantes: ["DADO DE BAJA", "EN REPARACIÓN"] }
+    };
 
     const configuracionActiva = CONFIGURACION_ENTIDADES[nombreHojaActiva];
     if (!configuracionActiva) {
-        throw new Error(`La hoja '${nombreHojaActiva}' no es un formulario válido para anulación.`);
+      throw new Error(`La hoja '${nombreHojaActiva}' no es un formulario válido para anulación.`);
     }
 
     hojaEntradaWS = workbook.getWorksheet(nombreHojaActiva);
@@ -62,12 +67,12 @@ async function main(
     tablaIntegridad = workbook.getTable("TablaIntegridad");
 
     if (!hojaEntradaWS || !hojaMaestrosWS || !itemClaveSistema || !itemSalt || !tablaIntegridad || !tablaUsuarios || !tablaBaseDatos || !tablaHistorial) {
-        throw new Error("Infraestructura: Faltan componentes, variables criptográficas o tablas críticas.");
+      throw new Error("Infraestructura: Faltan componentes, variables criptográficas o tablas críticas.");
     }
 
     claveProteccion = String(itemClaveSistema.getRange().getValue());
     const salt: string = String(itemSalt.getRange().getValue());
-    
+
     // FIX DE SEGURIDAD: Se remueve la desprotección global de hojaEntradaWS de aquí.
 
     // --- 2. VERIFICACIÓN DE INTEGRIDAD EN VIVO (ALCOA+) ---
@@ -75,7 +80,7 @@ async function main(
     const regBBDD = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
     const regHistorial = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
     const regUsuarios = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
-    
+
     const hashInicio: string = "INICIAR";
     const hashBBDD_Maestro: string = regBBDD ? String(regBBDD[1]) : hashInicio;
     const hashHistorial_Maestro: string = regHistorial ? String(regHistorial[1]) : hashInicio;
@@ -91,12 +96,12 @@ async function main(
     else if (hashUsuarios_Maestro !== hashInicio && hashVivoUsuarios !== hashUsuarios_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaUsuarios.`;
 
     if (mensajeErrorIntegridad !== "") {
-        throw new Error(mensajeErrorIntegridad + " Contacte a Calidad.");
+      throw new Error(mensajeErrorIntegridad + " Contacte a Calidad.");
     }
 
     // --- 3. BATCH READ: CAPTURA DEL FORMULARIO ---
     const rangoEtiquetasFormulario = hojaEntradaWS.getRange("B:B").getUsedRange();
-    
+
     if (rangoEtiquetasFormulario) {
       const matrizDatosFormulario: ValorCelda[][] = rangoEtiquetasFormulario.getResizedRange(0, 1).getValues() as ValorCelda[][];
       const indiceFilaInicial: number = rangoEtiquetasFormulario.getRowIndex();
@@ -106,7 +111,7 @@ async function main(
         const etiquetaLimpia: string = String(fila[0]).trim().toUpperCase();
         if (etiquetaLimpia !== "") {
           const claveCampo: string = etiquetaLimpia.replace("*", "").trim().replace(/\s/g, "_");
-          const valorIngresado: ValorCelda = fila[1]; 
+          const valorIngresado: ValorCelda = fila[1];
           objetoDatosFormulario[claveCampo] = (valorIngresado === null || String(valorIngresado).trim() === "") ? "" : String(valorIngresado);
         }
       });
@@ -117,40 +122,77 @@ async function main(
 
       const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
       const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
-      
+
       const idEnPantalla: string = String(objetoDatosFormulario[nombreCampoPrimario] || "").trim().toUpperCase();
       const idTipeado: string = idConfirmacion.trim().toUpperCase();
 
       // --- 4. AUTENTICACIÓN Y DOBLE CHEQUEO INTENCIONAL ---
       if (!usuarioIngresado || usuarioIngresado === "") {
-          listaErroresValidacion.push("El campo USUARIO es obligatorio para firmar la anulación.");
+        listaErroresValidacion.push("El campo USUARIO es obligatorio para firmar la anulación.");
       } else {
-          const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-          const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
-          
-          if (indiceUsuario === -1) {
-              listaErroresValidacion.push(`Firma inválida: Usuario '${usuarioIngresado}' no registrado.`);
-          } else {
-              const hashGuardado: string = String(matrizUsuarios[indiceUsuario][1]);
-              const hashFirmaCalculado: string = sha256(claveFirma);
+        const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
+        const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
 
-              if (hashGuardado === "INICIAR" || hashGuardado === "0" || hashGuardado === "") {
-                  matrizUsuarios[indiceUsuario][1] = hashFirmaCalculado;
-                  tablaUsuarios.getWorksheet().getProtection().unprotect(claveProteccion);
-                  tablaUsuarios.getRangeBetweenHeaderAndTotal().setValues(matrizUsuarios);
-                  actualizarFirmaUsuario = true;
-              } else if (hashGuardado !== hashFirmaCalculado) {
-                  listaErroresValidacion.push("Firma inválida: Credenciales incorrectas.");
-              }
+        if (indiceUsuario === -1) {
+          listaErroresValidacion.push(`Firma inválida: Usuario '${usuarioIngresado}' no registrado.`);
+        } else {
+          const hashGuardado: string = String(matrizUsuarios[indiceUsuario][1]);
+          const hashFirmaCalculado: string = sha256(claveFirma);
+
+          if (hashGuardado === "INICIAR" || hashGuardado === "0" || hashGuardado === "") {
+            matrizUsuarios[indiceUsuario][1] = hashFirmaCalculado;
+            tablaUsuarios.getWorksheet().getProtection().unprotect(claveProteccion);
+            tablaUsuarios.getRangeBetweenHeaderAndTotal().setValues(matrizUsuarios);
+            actualizarFirmaUsuario = true;
+          } else if (hashGuardado !== hashFirmaCalculado) {
+            listaErroresValidacion.push("Firma inválida: Credenciales incorrectas.");
           }
+        }
       }
 
       if (!idEnPantalla || idEnPantalla === "") listaErroresValidacion.push(`El formulario en pantalla no tiene un ID válido para anular.`);
       if (idTipeado !== idEnPantalla) listaErroresValidacion.push(`Mismatch: El ID ingresado [${idTipeado}] no coincide con el registro en pantalla [${idEnPantalla}].`);
       if (!motivoDeAnulacion || motivoDeAnulacion.trim() === "") listaErroresValidacion.push(`La justificación de anulación es obligatoria (ALCOA+).`);
 
+      // =====================================================================
+      // --- MOTOR DE AUTORIZACIÓN (ACL - ZERO TRUST) ---
+      // =====================================================================
+      if (listaErroresValidacion.length === 0) {
+        const transaccionRequerida = "ANULACION";
+
+        const tablaPermisos = workbook.getTable("TablaPermisos");
+        if (!tablaPermisos) {
+          throw new Error("Integridad fallida: TablaPermisos no localizada en el repositorio local.");
+        }
+
+        const matrizACL = tablaPermisos.getRangeBetweenHeaderAndTotal().getTexts();
+        let idxPermiso = 0;
+        let autorizacionConcedida = false;
+
+        while (idxPermiso < matrizACL.length && !autorizacionConcedida) {
+          const usuarioBase = String(matrizACL[idxPermiso][0]).trim().toUpperCase();
+          const transaccionBase = String(matrizACL[idxPermiso][1]).trim().toUpperCase();
+          const estadoAcceso = String(matrizACL[idxPermiso][2]).trim().toUpperCase();
+
+          const usuarioCoincide = (usuarioBase === usuarioIngresado.toUpperCase());
+          const transaccionCoincide = (transaccionBase === transaccionRequerida || transaccionBase === "*");
+          const accesoPermitido = (estadoAcceso === "CONCEDIDO");
+
+          if (usuarioCoincide && transaccionCoincide && accesoPermitido) {
+            autorizacionConcedida = true;
+          }
+          idxPermiso++;
+        }
+
+        if (!autorizacionConcedida) {
+          listaErroresValidacion.push(`ACCESO DENEGADO: El usuario ${usuarioIngresado} no posee privilegios para la transacción [${transaccionRequerida}].`);
+        }
+      }
+      // =====================================================================
+
       if (listaErroresValidacion.length === 0) {
         const matrizValoresDB: ValorCelda[][] = tablaBaseDatos.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
+
         let indiceFilaEncontrada: number = -1;
         let contadorFilas: number = 0;
         let registroEncontrado: boolean = false;
@@ -171,77 +213,77 @@ async function main(
           if (estadoActual === "ANULADO") {
             listaErroresValidacion.push(`El registro #${idTipeado} ya se encuentra ANULADO.`);
           } else {
-            
+
             // --- 5. MOTOR DINÁMICO: MAPEO DE ANULACIÓN EN CASCADA (BATCHING I/O TOTAL) ---
             const tablaReglasMaestra = hojaMaestrosWS.getTable("TablaReglas");
-            
-            const diccionarioTablasAuxiliares: { 
-                [nombreTabla: string]: { 
-                    nombreTablaObject: string, 
-                    encabezados: string[], 
-                    datos: ValorCelda[][],
-                    nombreHistorialObject: string | null,
-                    historialEncabezados: string[],
-                    historialMaxId: number
-                } 
+
+            const diccionarioTablasAuxiliares: {
+              [nombreTabla: string]: {
+                nombreTablaObject: string,
+                encabezados: string[],
+                datos: ValorCelda[][],
+                nombreHistorialObject: string | null,
+                historialEncabezados: string[],
+                historialMaxId: number
+              }
             } = {};
-            
+
             const reglasCascadaAplicables: { nombreTablaRef: string, colForanea: string, mensajeRef: string }[] = [];
 
             if (tablaReglasMaestra) {
-                const matrizReglasTodas: ValorCelda[][] = tablaReglasMaestra.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                
-                matrizReglasTodas.forEach((regla: ValorCelda[]) => {
-                    if (configuracionActiva.tabla.toUpperCase().includes(String(regla[0]).toUpperCase())) {
-                        const operador: string = String(regla[2]);
-                        if (operador === "ANULAR_EN_CASCADA") {
-                            const referenciaRaw: string = String(regla[3]);
-                            const [nombreTablaRef, parteColumna] = referenciaRaw.split("[");
-                            const nombreColumnaRef: string = parteColumna.replace("]", "");
-                            
-                            reglasCascadaAplicables.push({
-                                nombreTablaRef: nombreTablaRef,
-                                colForanea: nombreColumnaRef,
-                                mensajeRef: String(regla[4])
-                            });
+              const matrizReglasTodas: ValorCelda[][] = tablaReglasMaestra.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
 
-                            if (nombreTablaRef && !diccionarioTablasAuxiliares[nombreTablaRef]) {
-                                const tablaAuxiliar = workbook.getTable(nombreTablaRef);
-                                if (tablaAuxiliar) {
-                                    
-                                    const configHijaClave = Object.keys(CONFIGURACION_ENTIDADES).find(k => CONFIGURACION_ENTIDADES[k].tabla === nombreTablaRef);
-                                    const nombreHistorialHija = configHijaClave ? CONFIGURACION_ENTIDADES[configHijaClave].historial : null;
-                                    
-                                    let encabHistHija: string[] = [];
-                                    let maxIdHistHija = 0;
+              matrizReglasTodas.forEach((regla: ValorCelda[]) => {
+                if (configuracionActiva.tabla.toUpperCase().includes(String(regla[0]).toUpperCase())) {
+                  const operador: string = String(regla[2]);
+                  if (operador === "ANULAR_EN_CASCADA") {
+                    const referenciaRaw: string = String(regla[3]);
+                    const [nombreTablaRef, parteColumna] = referenciaRaw.split("[");
+                    const nombreColumnaRef: string = parteColumna.replace("]", "");
 
-                                    if (nombreHistorialHija) {
-                                        const tablaHistHijaObj = workbook.getTable(nombreHistorialHija);
-                                        if (tablaHistHijaObj) {
-                                            encabHistHija = (tablaHistHijaObj.getHeaderRowRange().getValues()[0] as string[]).map((h: string) => h.toUpperCase().replace(/\s/g, "_"));
-                                            const datosIdsHist = tablaHistHijaObj.getColumnByName("ID_EVENTO").getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                                            maxIdHistHija = tablaHistHijaObj.getRowCount() === 0 ? 0 : Math.max(...datosIdsHist.map(v => Number(v[0])));
-                                        }
-                                    }
+                    reglasCascadaAplicables.push({
+                      nombreTablaRef: nombreTablaRef,
+                      colForanea: nombreColumnaRef,
+                      mensajeRef: String(regla[4])
+                    });
 
-                                    diccionarioTablasAuxiliares[nombreTablaRef] = {
-                                        nombreTablaObject: nombreTablaRef,
-                                        encabezados: tablaAuxiliar.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_")),
-                                        datos: tablaAuxiliar.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][],
-                                        nombreHistorialObject: nombreHistorialHija,
-                                        historialEncabezados: encabHistHija,
-                                        historialMaxId: maxIdHistHija
-                                    };
-                                }
-                            }
+                    if (nombreTablaRef && !diccionarioTablasAuxiliares[nombreTablaRef]) {
+                      const tablaAuxiliar = workbook.getTable(nombreTablaRef);
+                      if (tablaAuxiliar) {
+
+                        const configHijaClave = Object.keys(CONFIGURACION_ENTIDADES).find(k => CONFIGURACION_ENTIDADES[k].tabla === nombreTablaRef);
+                        const nombreHistorialHija = configHijaClave ? CONFIGURACION_ENTIDADES[configHijaClave].historial : null;
+
+                        let encabHistHija: string[] = [];
+                        let maxIdHistHija = 0;
+
+                        if (nombreHistorialHija) {
+                          const tablaHistHijaObj = workbook.getTable(nombreHistorialHija);
+                          if (tablaHistHijaObj) {
+                            encabHistHija = (tablaHistHijaObj.getHeaderRowRange().getValues()[0] as string[]).map((h: string) => h.toUpperCase().replace(/\s/g, "_"));
+                            const datosIdsHist = tablaHistHijaObj.getColumnByName("ID_EVENTO").getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
+                            maxIdHistHija = tablaHistHijaObj.getRowCount() === 0 ? 0 : Math.max(...datosIdsHist.map(v => Number(v[0])));
+                          }
                         }
+
+                        diccionarioTablasAuxiliares[nombreTablaRef] = {
+                          nombreTablaObject: nombreTablaRef,
+                          encabezados: tablaAuxiliar.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_")),
+                          datos: tablaAuxiliar.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][],
+                          nombreHistorialObject: nombreHistorialHija,
+                          historialEncabezados: encabHistHija,
+                          historialMaxId: maxIdHistHija
+                        };
+                      }
                     }
-                });
+                  }
+                }
+              });
             }
 
             // --- 6. EJECUCIÓN DE LA ANULACIÓN (COMMIT DEFINITIVO EN CASCADA) ---
             const fechaAuditTrail: string = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
-            
+
             // 6.A Anular Entidad Matriz
             tablaBaseDatos.getWorksheet().getProtection().unprotect(claveProteccion);
             const idxEstadoMatriz: number = encabezadosTabla.indexOf("ESTADO");
@@ -252,13 +294,13 @@ async function main(
             filaAtomicaMatriz[idxEstadoMatriz] = "ANULADO";
             if (idxUsuarioMatriz !== -1) filaAtomicaMatriz[idxUsuarioMatriz] = usuarioIngresado;
             if (idxAuditTrailMatriz !== -1) filaAtomicaMatriz[idxAuditTrailMatriz] = fechaAuditTrail;
-            
+
             tablaBaseDatos.getRangeBetweenHeaderAndTotal().getRow(indiceFilaEncontrada).setValues([filaAtomicaMatriz]);
 
             // 6.B Historial Entidad Matriz
             tablaHistorial.getWorksheet().getProtection().unprotect(claveProteccion);
             let idMaxHistorialGlobal = tablaHistorial!.getRowCount() === 0 ? 0 : Math.max(...(tablaHistorial!.getColumnByName("ID_EVENTO").getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][]).map((v: ValorCelda[]) => Number(v[0])));
-            
+
             const filaHistorialMatriz: ValorCelda[] = (tablaHistorial.getHeaderRowRange().getValues()[0] as string[]).map((h: string) => {
               const headCaps = h.toUpperCase();
               if (headCaps === "ID_EVENTO") return ++idMaxHistorialGlobal;
@@ -270,70 +312,105 @@ async function main(
               return "";
             });
             tablaHistorial.addRow(-1, filaHistorialMatriz);
+            // =====================================================================
+            // --- TRIGGER DE NOTIFICACIÓN ASÍNCRONA: ANULACIÓN ---
+            // =====================================================================
+            const diccionarioFilaActualizada: { [key: string]: string } = {};
+
+            // 1. Lectura del Vector Atómico (Single Source of Truth)
+            encabezadosTabla.forEach((header: string, index: number) => {
+              // NOTA: Asegúrate de que 'filaAtomicaModificada' sea el nombre de tu variable array
+              let valorFinal = filaAtomicaMatriz[index] !== undefined
+                ? String(filaAtomicaMatriz[index])
+                : "N/A";
+
+              // 2. Formateo dinámico de fechas crudas (Serial a DD/MM/YYYY)
+              if (header.includes("FECHA") && valorFinal !== "N/A" && valorFinal !== "") {
+                valorFinal = auxiliarFormatearFechaAString(valorFinal);
+              }
+
+              diccionarioFilaActualizada[header] = valorFinal;
+            });
+
+            // 3. Inyección explícita del MOTIVO (Evidencia ALCOA+)
+            diccionarioFilaActualizada["MOTIVO_ANULACION"] = motivoDeAnulacion.trim();
+
+            const payloadActualizacion: PayloadNotificacion = {
+              entidad: configuracionActiva.tabla.replace("Tabla", "").toUpperCase(),
+              transaccion: "ANULACION",
+              idRegistro: idTipeado, // Asegúrate de que este ID sea el validado en tu lógica previa
+              usuario: usuarioIngresado,
+              fechaHora: fechaAuditTrail,
+              datosFila: diccionarioFilaActualizada,
+              logCambios: [`ESTADO: [${estadoActual}] -> [ANULADO] (Motivo: ${motivoDeAnulacion.trim()})`]
+            };
+
+            auxiliarEncolarNotificacion(workbook, payloadActualizacion, claveProteccion);
+            // =====================================================================
 
             // 6.C Ejecución de Cascada (Bottom-Up in RAM puro)
             const matricesSelladoParaIntegridad: { nombreTabla: string, nuevaFirma: string }[] = [];
 
             for (const regla of reglasCascadaAplicables) {
-                const memoriaDependiente = diccionarioTablasAuxiliares[regla.nombreTablaRef];
-                if (memoriaDependiente) {
-                    const idxColForanea: number = memoriaDependiente.encabezados.indexOf(regla.colForanea);
-                    const idxEstadoHija: number = memoriaDependiente.encabezados.indexOf("ESTADO");
-                    const idxAuditHija: number = memoriaDependiente.encabezados.indexOf("AUDIT_TRAIL");
-                    
-                    if (idxColForanea !== -1 && idxEstadoHija !== -1) {
-                        let matrizDatosActualizadaHija: ValorCelda[][] = [...memoriaDependiente.datos];
-                        
-                        let encabezadosHistorialHija: string[] = memoriaDependiente.historialEncabezados;
-                        let maxIdHistorialHija: number = memoriaDependiente.historialMaxId;
-                        let colPrimariaHija: string = memoriaDependiente.encabezados[0];
-                        let huboCambiosCascada: boolean = false;
-                        let historialHijaFilaTemplate: ValorCelda[][] = []; 
+              const memoriaDependiente = diccionarioTablasAuxiliares[regla.nombreTablaRef];
+              if (memoriaDependiente) {
+                const idxColForanea: number = memoriaDependiente.encabezados.indexOf(regla.colForanea);
+                const idxEstadoHija: number = memoriaDependiente.encabezados.indexOf("ESTADO");
+                const idxAuditHija: number = memoriaDependiente.encabezados.indexOf("AUDIT_TRAIL");
 
-                        matrizDatosActualizadaHija.forEach((filaHija: ValorCelda[]) => {
-                            if (String(filaHija[idxColForanea]).toUpperCase() === idTipeado && String(filaHija[idxEstadoHija]).toUpperCase() !== "ANULADO") {
-                                filaHija[idxEstadoHija] = "ANULADO";
-                                if (idxAuditHija !== -1) filaHija[idxAuditHija] = fechaAuditTrail;
-                                huboCambiosCascada = true;
+                if (idxColForanea !== -1 && idxEstadoHija !== -1) {
+                  let matrizDatosActualizadaHija: ValorCelda[][] = [...memoriaDependiente.datos];
 
-                                if (memoriaDependiente.nombreHistorialObject && encabezadosHistorialHija.length > 0) {
-                                    const idHijaAfectada: string = String(filaHija[memoriaDependiente.encabezados.indexOf(colPrimariaHija)]);
-                                    const nuevaFilaHistHija: ValorCelda[] = encabezadosHistorialHija.map((h: string) => {
-                                        if (h === "ID_EVENTO") return ++maxIdHistorialHija;
-                                        if (h === colPrimariaHija) return idHijaAfectada;
-                                        // FIX ALCOA+: El usuario firmante hereda la trazabilidad de la cascada
-                                        if (h === "USUARIO") return usuarioIngresado; 
-                                        if (h === "MOTIVO") return `${regla.mensajeRef} (ID: ${idTipeado})`;
-                                        if (h === "CAMBIOS") return "[ANULACIÓN EN CASCADA]";
-                                        if (h === "FECHA_CAMBIO") return fechaAuditTrail;
-                                        return "";
-                                    });
-                                    historialHijaFilaTemplate.push(nuevaFilaHistHija);
-                                }
-                            }
+                  let encabezadosHistorialHija: string[] = memoriaDependiente.historialEncabezados;
+                  let maxIdHistorialHija: number = memoriaDependiente.historialMaxId;
+                  let colPrimariaHija: string = memoriaDependiente.encabezados[0];
+                  let huboCambiosCascada: boolean = false;
+                  let historialHijaFilaTemplate: ValorCelda[][] = [];
+
+                  matrizDatosActualizadaHija.forEach((filaHija: ValorCelda[]) => {
+                    if (String(filaHija[idxColForanea]).toUpperCase() === idTipeado && String(filaHija[idxEstadoHija]).toUpperCase() !== "ANULADO") {
+                      filaHija[idxEstadoHija] = "ANULADO";
+                      if (idxAuditHija !== -1) filaHija[idxAuditHija] = fechaAuditTrail;
+                      huboCambiosCascada = true;
+
+                      if (memoriaDependiente.nombreHistorialObject && encabezadosHistorialHija.length > 0) {
+                        const idHijaAfectada: string = String(filaHija[memoriaDependiente.encabezados.indexOf(colPrimariaHija)]);
+                        const nuevaFilaHistHija: ValorCelda[] = encabezadosHistorialHija.map((h: string) => {
+                          if (h === "ID_EVENTO") return ++maxIdHistorialHija;
+                          if (h === colPrimariaHija) return idHijaAfectada;
+                          // FIX ALCOA+: El usuario firmante hereda la trazabilidad de la cascada
+                          if (h === "USUARIO") return usuarioIngresado;
+                          if (h === "MOTIVO") return `${regla.mensajeRef} (ID: ${idTipeado})`;
+                          if (h === "CAMBIOS") return "[ANULACIÓN EN CASCADA]";
+                          if (h === "FECHA_CAMBIO") return fechaAuditTrail;
+                          return "";
                         });
-
-                        if (huboCambiosCascada) {
-                            const tablaHijaOperativa = workbook.getTable(memoriaDependiente.nombreTablaObject);
-                            if (tablaHijaOperativa) {
-                                tablaHijaOperativa.getWorksheet().getProtection().unprotect(claveProteccion);
-                                tablaHijaOperativa.getRangeBetweenHeaderAndTotal().setValues(matrizDatosActualizadaHija);
-                                matricesSelladoParaIntegridad.push({ nombreTabla: memoriaDependiente.nombreTablaObject, nuevaFirma: "" });
-                                tablasHijasModificadas.push(tablaHijaOperativa); // Captura para re-sellado seguro
-                            }
-
-                            if (memoriaDependiente.nombreHistorialObject && historialHijaFilaTemplate.length > 0) {
-                                const tablaHistHijaOperativa = workbook.getTable(memoriaDependiente.nombreHistorialObject);
-                                if (tablaHistHijaOperativa) {
-                                    tablaHistHijaOperativa.getWorksheet().getProtection().unprotect(claveProteccion);
-                                    historialHijaFilaTemplate.forEach((fila: ValorCelda[]) => tablaHistHijaOperativa.addRow(-1, fila as string[]));
-                                    matricesSelladoParaIntegridad.push({ nombreTabla: memoriaDependiente.nombreHistorialObject, nuevaFirma: "" });
-                                    tablasHijasModificadas.push(tablaHistHijaOperativa); // Captura para re-sellado seguro
-                                }
-                            }
-                        }
+                        historialHijaFilaTemplate.push(nuevaFilaHistHija);
+                      }
                     }
+                  });
+
+                  if (huboCambiosCascada) {
+                    const tablaHijaOperativa = workbook.getTable(memoriaDependiente.nombreTablaObject);
+                    if (tablaHijaOperativa) {
+                      tablaHijaOperativa.getWorksheet().getProtection().unprotect(claveProteccion);
+                      tablaHijaOperativa.getRangeBetweenHeaderAndTotal().setValues(matrizDatosActualizadaHija);
+                      matricesSelladoParaIntegridad.push({ nombreTabla: memoriaDependiente.nombreTablaObject, nuevaFirma: "" });
+                      tablasHijasModificadas.push(tablaHijaOperativa); // Captura para re-sellado seguro
+                    }
+
+                    if (memoriaDependiente.nombreHistorialObject && historialHijaFilaTemplate.length > 0) {
+                      const tablaHistHijaOperativa = workbook.getTable(memoriaDependiente.nombreHistorialObject);
+                      if (tablaHistHijaOperativa) {
+                        tablaHistHijaOperativa.getWorksheet().getProtection().unprotect(claveProteccion);
+                        historialHijaFilaTemplate.forEach((fila: ValorCelda[]) => tablaHistHijaOperativa.addRow(-1, fila as string[]));
+                        matricesSelladoParaIntegridad.push({ nombreTabla: memoriaDependiente.nombreHistorialObject, nuevaFirma: "" });
+                        tablasHijasModificadas.push(tablaHistHijaOperativa); // Captura para re-sellado seguro
+                      }
+                    }
+                  }
                 }
+              }
             }
 
             resultadoOperacion.message = `✅ ${configuracionActiva.etiqueta.charAt(0).toUpperCase() + configuracionActiva.etiqueta.slice(1)} #${idTipeado} y sus dependencias ANULAD${configuracionActiva.genero.toUpperCase()}S con éxito.`;
@@ -345,9 +422,9 @@ async function main(
 
             // --- 7. ACTUALIZACIÓN DE SELLOS MAESTROS MASIVA ---
             tablaIntegridad.getWorksheet().getProtection().unprotect(claveProteccion);
-            
+
             let matrizSeg: ValorCelda[][] = tablaIntegridad.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-            
+
             // Sellar Matrices
             const idxBBDD: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
             if (idxBBDD !== -1) matrizSeg[idxBBDD][1] = await generarFirmaDigital(tablaBaseDatos, salt);
@@ -356,25 +433,25 @@ async function main(
             if (idxHist !== -1) matrizSeg[idxHist][1] = await generarFirmaDigital(tablaHistorial, salt);
 
             if (actualizarFirmaUsuario) {
-                const idxUsu: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
-                if (idxUsu !== -1) matrizSeg[idxUsu][1] = await generarFirmaDigital(tablaUsuarios, salt);
+              const idxUsu: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
+              if (idxUsu !== -1) matrizSeg[idxUsu][1] = await generarFirmaDigital(tablaUsuarios, salt);
             }
 
             // Sellar Tablas Hija Afectadas
             for (const itemSellado of matricesSelladoParaIntegridad) {
-                const tablaAfectadaObj = workbook.getTable(itemSellado.nombreTabla);
-                if (tablaAfectadaObj) {
-                    const nuevaFirmaHija = await generarFirmaDigital(tablaAfectadaObj, salt);
-                    const idxSegHija: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === itemSellado.nombreTabla);
-                    if (idxSegHija !== -1) matrizSeg[idxSegHija][1] = nuevaFirmaHija;
-                }
+              const tablaAfectadaObj = workbook.getTable(itemSellado.nombreTabla);
+              if (tablaAfectadaObj) {
+                const nuevaFirmaHija = await generarFirmaDigital(tablaAfectadaObj, salt);
+                const idxSegHija: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === itemSellado.nombreTabla);
+                if (idxSegHija !== -1) matrizSeg[idxSegHija][1] = nuevaFirmaHija;
+              }
             }
 
             tablaIntegridad.getRangeBetweenHeaderAndTotal().setValues(matrizSeg);
           }
         }
       }
-      
+
       if (listaErroresValidacion.length > 0) {
         resultadoOperacion.success = false;
         resultadoOperacion.message = "⚠️ Validación Fallida:\n" + listaErroresValidacion.join("\n");
@@ -394,10 +471,10 @@ async function main(
       if (tablaHistorial) auxiliarProtegerHoja(tablaHistorial.getWorksheet(), claveProteccion, resultadoOperacion);
       if (tablaUsuarios) auxiliarProtegerHoja(tablaUsuarios.getWorksheet(), claveProteccion, resultadoOperacion);
       if (tablaIntegridad) auxiliarProtegerHoja(tablaIntegridad.getWorksheet(), claveProteccion, resultadoOperacion);
-      
+
       // FIX DE ARQUITECTURA: Re-sellado iterando objetos en RAM (Sin consultas I/O riesgosas en bloque finally)
       tablasHijasModificadas.forEach(tabla => {
-          auxiliarProtegerHoja(tabla.getWorksheet(), claveProteccion, resultadoOperacion);
+        auxiliarProtegerHoja(tabla.getWorksheet(), claveProteccion, resultadoOperacion);
       });
     }
   }
@@ -405,39 +482,39 @@ async function main(
   // --- FUNCIONES AUXILIARES (HELPERS) ---
 
   function auxiliarActualizarInterfazUX(hoja: ExcelScript.Worksheet, res: ResultadoAccion, colores: MapaColoresUX, pass: string): void {
-        const itemF = hoja.getNamedItem("UI_FEEDBACK");
-        const itemP = hoja.getNamedItem("UI_PREPARACION");
-        
-        if (itemF) {
-            const rf = itemF.getRange();
-            const est = colores[res.logLevel];
-            try {
-                hoja.getProtection().unprotect(pass);
-                rf.setValue(`[${new Date().toLocaleTimeString('es-AR', { hour12: false })}] ${res.message}`);
-                rf.getFormat().getFill().setColor(est.fondo);
-                rf.getFormat().getFont().setColor(est.texto);
-                rf.getFormat().getFont().setBold(true);
-                
-                if (itemP) { 
-                    itemP.getRange().setValue(""); 
-                    itemP.getRange().getFormat().getFill().clear(); 
-                }
-                rf.select();
-            } catch (e) {
-                console.log("Falla al aplicar UX. La hoja podría estar bloqueada con otra clave: ", e);
-            }
-        } else {
-            console.log("Falla de Infraestructura evitada: No se encontró el ítem nombrado 'UI_FEEDBACK'.");
+    const itemF = hoja.getNamedItem("UI_FEEDBACK");
+    const itemP = hoja.getNamedItem("UI_PREPARACION");
+
+    if (itemF) {
+      const rf = itemF.getRange();
+      const est = colores[res.logLevel];
+      try {
+        hoja.getProtection().unprotect(pass);
+        rf.setValue(`[${new Date().toLocaleTimeString('es-AR', { hour12: false })}] ${res.message}`);
+        rf.getFormat().getFill().setColor(est.fondo);
+        rf.getFormat().getFont().setColor(est.texto);
+        rf.getFormat().getFont().setBold(true);
+
+        if (itemP) {
+          itemP.getRange().setValue("");
+          itemP.getRange().getFormat().getFill().clear();
         }
+        rf.select();
+      } catch (e) {
+        console.log("Falla al aplicar UX. La hoja podría estar bloqueada con otra clave: ", e);
+      }
+    } else {
+      console.log("Falla de Infraestructura evitada: No se encontró el ítem nombrado 'UI_FEEDBACK'.");
     }
+  }
 
   function auxiliarProtegerHoja(hoja: ExcelScript.Worksheet | undefined, pass: string, res: ResultadoAccion): void {
     if (hoja) {
       try { hoja.getProtection().protect({ allowAutoFilter: true }, pass); }
-      catch (e) { 
+      catch (e) {
         res.success = false;
         res.logLevel = 'ERROR';
-        res.message += ` | Falla protegiendo: ${hoja.getName()}`; 
+        res.message += ` | Falla protegiendo: ${hoja.getName()}`;
       }
     }
   }
@@ -462,7 +539,7 @@ function sha256(s: string): string {
   let a: number = 0, b: number = 0, c: number = 0, d: number = 0, e: number = 0, f: number = 0, g: number = 0, h: number = 0;
   const chrsz: number = 8;
   function safe_add(x: number, y: number): number {
-    const lsw: number = (x & 0xFFFF) + (y & 0xFFFF); 
+    const lsw: number = (x & 0xFFFF) + (y & 0xFFFF);
     const msw: number = (x >> 16) + (y >> 16) + (lsw >> 16);
     return (msw << 16) | (lsw & 0xFFFF);
   }
@@ -504,4 +581,97 @@ function sha256(s: string): string {
     return str;
   }
   return binb2hex(core_sha256(str2binb(s), s.length * chrsz));
+}
+
+// --- INTERFACES DE NOTIFICACIÓN ---
+type TipoTransaccion = 'CREACION' | 'MODIFICACION' | 'CAMBIO_ESTADO' | 'ANULACION' | 'BAJA';
+
+interface PayloadNotificacion {
+  entidad: string;
+  transaccion: TipoTransaccion;
+  idRegistro: string;
+  usuario: string;
+  fechaHora: string;
+  datosFila: { [key: string]: string };
+  logCambios: string[];
+}
+
+// --- HELPER DE MENSAJERÍA (SESE & Fail-Safe) ---
+function auxiliarEncolarNotificacion(
+  workbook: ExcelScript.Workbook,
+  payload: PayloadNotificacion,
+  claveProteccion: string
+): void {
+  try {
+    const tablaOutbox = workbook.getTable("TablaNotificaciones_Outbox");
+
+    if (tablaOutbox) {
+      let textoDetalleCompleto: string = "";
+      const clavesDatos = Object.keys(payload.datosFila);
+      let idxDatos = 0;
+
+      while (idxDatos < clavesDatos.length) {
+        const clave = clavesDatos[idxDatos];
+        textoDetalleCompleto += `${clave.replace(/_/g, " ")}: ${payload.datosFila[clave]}\n`;
+        idxDatos++;
+      }
+
+      let textoResumenCambios: string = "";
+      if (payload.logCambios && payload.logCambios.length > 0) {
+        let idxLog = 0;
+        while (idxLog < payload.logCambios.length) {
+          textoResumenCambios += `${payload.logCambios[idxLog]}\n`;
+          idxLog++;
+        }
+      } else {
+        textoResumenCambios = "No se detectaron modificaciones específicas. (Alta/Creación)";
+      }
+
+      const paqueteJSON = JSON.stringify({
+        Entidad: payload.entidad,
+        Transaccion: payload.transaccion,
+        Firma: `${payload.usuario} - ${payload.fechaHora}`,
+        ResumenCambios: textoResumenCambios.trim(),
+        DetalleCompleto: textoDetalleCompleto.trim()
+      });
+
+      const idMensaje = `MSG-${new Date().getTime()}`;
+      const nuevaFila = [
+        idMensaje,
+        payload.fechaHora,
+        "PENDIENTE",
+        paqueteJSON
+      ];
+
+      const hojaOutbox = tablaOutbox.getWorksheet();
+      hojaOutbox.getProtection().unprotect(claveProteccion);
+      tablaOutbox.addRow(-1, nuevaFila);
+      // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
+      // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+    } else {
+      console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
+    }
+  } catch (errorOutbox) {
+    console.log(`[SYS_WARNING] Falla aislada al encolar notificación: ${(errorOutbox as Error).message}`);
+  }
+}
+
+function auxiliarFormatearFechaAString(valor: ValorCelda): string {
+    const numeroSerial = Number(valor);
+    if (!isNaN(numeroSerial) && String(valor).trim() !== "") {
+        const milisegundos: number = Math.round((numeroSerial - 25569) * 86400 * 1000) + 43200000;
+        const fechaObjeto = new Date(milisegundos);
+        const dia: string = String(fechaObjeto.getDate()).padStart(2, '0');
+        const mes: string = String(fechaObjeto.getMonth() + 1).padStart(2, '0');
+        return `${dia}/${mes}/${fechaObjeto.getFullYear()}`;
+    }
+
+    const partes: string[] = String(valor).split("/");
+    if (partes.length === 3) {
+        const dia: string = String(parseInt(partes[0])).padStart(2, '0');
+        const mes: string = String(parseInt(partes[1])).padStart(2, '0');
+        return `${dia}/${mes}/${partes[2]}`;
+    }
+
+    return String(valor).trim();
 }
