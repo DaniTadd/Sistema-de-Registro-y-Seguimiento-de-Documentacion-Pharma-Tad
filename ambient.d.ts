@@ -21,6 +21,7 @@ declare namespace ExcelScript {
         getNamedItem(name: string): NamedItem | undefined;
         getUsedRange(valuesOnly?: boolean): Range; 
         getProtection(): WorksheetProtection;
+        activate(): void;
     }
 
     interface WorksheetProtection {

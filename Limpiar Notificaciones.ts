@@ -1,19 +1,21 @@
 /**
  * SCRIPT: SISTEMA_PURGAR_OUTBOX_BATCH
- * OBJETIVO: Microservicio idempotente. Elimina múltiples mensajes procesados garantizando la mitigación de Race Conditions.
+ * OBJETIVO: Microservicio idempotente con preservación de Viewport (evita saltos de hoja).
  */
 interface ResultadoPurgado { success: boolean; message: string; }
 
 async function main(
     workbook: ExcelScript.Workbook,
-    idsMensajesCsv: string // Input esperado: "MSG-1, MSG-2, MSG-3"
+    idsMensajesCsv: string
 ): Promise<ResultadoPurgado> {
     const resultado: ResultadoPurgado = { success: true, message: "Inicio de purgado batch." };
     let hojaOutbox: ExcelScript.Worksheet | undefined;
     let claveProteccion: string = "";
+    
+    // 1. Captura anticipada de la hoja activa (Viewport State Preservation)
+    const hojaActivaOriginal: ExcelScript.Worksheet = workbook.getActiveWorksheet();
 
     try {
-        // 1. Validación estricta del contrato API (Zero Trust)
         if (idsMensajesCsv === undefined || idsMensajesCsv === null || idsMensajesCsv.trim() === "") {
             throw new Error("Contrato API violado: Se requiere una cadena separada por comas con los IDs a purgar.");
         }
@@ -28,15 +30,12 @@ async function main(
         claveProteccion = String(itemClaveSistema.getRange().getValue());
         hojaOutbox = tablaOutbox.getWorksheet();
         
-        // 2. Apertura Atómica
+        // 2. Apertura Atómica (Operación en background)
         hojaOutbox.getProtection().unprotect(claveProteccion);
 
-        // 3. Extracción y Normalización de Datos (I/O Lote & Zero Trust Sanitization)
-        // Sanitización agresiva: Extrae únicamente patrones que coincidan con "MSG-" seguido de caracteres alfanuméricos.
+        // 3. Extracción y Normalización de Datos (Zero Trust Sanitization)
         const patronMSG = /MSG-[A-Za-z0-9\-]+/g;
         const extraccionCruda = idsMensajesCsv.match(patronMSG) || [];
-        
-        // Excepción Funcional SESE: Uso de Set para deduplicación masiva en RAM (O(1)).
         const listaIdsRequeridos = Array.from(new Set(extraccionCruda));
         
         if (listaIdsRequeridos.length === 0) {
@@ -45,7 +44,7 @@ async function main(
 
         const matrizOutbox = tablaOutbox.getRangeBetweenHeaderAndTotal().getValues() as string[][];
 
-        // 4. Búsqueda Lineal en RAM
+        // 4. Búsqueda Lineal en RAM (SESE Compliance)
         const indicesAEliminar: number[] = [];
         let indiceBusqueda = 0;
 
@@ -54,7 +53,6 @@ async function main(
             let indiceComparacion = 0;
             let coincidenciaEncontrada = false;
 
-            // Motor de coincidencia iterativo
             while (indiceComparacion < listaIdsRequeridos.length && !coincidenciaEncontrada) {
                 if (idFilaActiva === listaIdsRequeridos[indiceComparacion]) {
                     indicesAEliminar.push(indiceBusqueda);
@@ -67,8 +65,6 @@ async function main(
 
         // 5. Ejecución de Borrado Batch (De abajo hacia arriba)
         if (indicesAEliminar.length > 0) {
-            // Excepción Funcional SESE: Uso de sort para ordenar los índices de mayor a menor.
-            // Es vital borrar desde la última fila hacia arriba para que los índices no se desplacen.
             const indicesOrdenadosDesc = indicesAEliminar.sort((a, b) => b - a);
             let indiceBorrado = 0;
             
@@ -86,7 +82,7 @@ async function main(
         resultado.success = false;
         resultado.message = `Error crítico en purgado: ${String(e)}`;
     } finally {
-        // 6. Re-sellado Hermético Garantizado
+        // 6. Re-sellado Hermético
         if (hojaOutbox) {
             try {
                 hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
@@ -94,6 +90,15 @@ async function main(
                 resultado.success = false;
                 resultado.message += " | ADVERTENCIA: Fallo al re-proteger la hoja Outbox.";
             }
+        }
+
+        // 7. Restauración Garantizada del Viewport Original
+        try {
+            if (hojaActivaOriginal) {
+                hojaActivaOriginal.activate();
+            }
+        } catch (errorViewport) {
+            // Silencioso por seguridad de infraestructura si el contexto visual expira
         }
     }
 

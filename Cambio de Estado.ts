@@ -302,7 +302,7 @@ async function main(
                             const idxAuditTrail: number = encabezadosTabla.indexOf("AUDIT_TRAIL");
                             const idxUsuario: number = encabezadosTabla.indexOf("USUARIO");
                             const idxCierre = encabezadosTabla.findIndex(h => h === "FECHA_CIERRE" || h === "FECHA_BAJA");
-                            const idxUso = encabezadosTabla.indexOf("FECHA_USO"); // Se agrega búsqueda de nueva columna
+                            const idxUso = encabezadosTabla.indexOf("FECHA_ALTA"); // Se agrega búsqueda de nueva columna
 
                             // Generamos UNA SOLA estampa de tiempo para garantizar sincronía criptográfica exacta en toda la fila
                             const fechaTransaccionObj = new Date();
