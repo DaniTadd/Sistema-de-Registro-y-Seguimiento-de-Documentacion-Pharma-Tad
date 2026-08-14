@@ -646,8 +646,7 @@ function auxiliarEncolarNotificacion(
       const hojaOutbox = tablaOutbox.getWorksheet();
       hojaOutbox.getProtection().unprotect(claveProteccion);
       tablaOutbox.addRow(-1, nuevaFila);
-      // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
-      // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+      hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
     } else {
       console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
     }

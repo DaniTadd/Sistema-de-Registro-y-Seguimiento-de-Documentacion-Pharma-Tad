@@ -297,16 +297,39 @@ async function main(
                         // --- 6. DECISIÓN DE PERSISTENCIA Y COMMIT ATÓMICO ---
                         if (listaErroresValidacion.length === 0) {
                             tablaBaseDatos.getWorksheet().getProtection().unprotect(claveProteccion);
+
                             const idxEstado: number = encabezadosTabla.indexOf("ESTADO");
                             const idxAuditTrail: number = encabezadosTabla.indexOf("AUDIT_TRAIL");
                             const idxUsuario: number = encabezadosTabla.indexOf("USUARIO");
+                            const idxCierre = encabezadosTabla.findIndex(h => h === "FECHA_CIERRE" || h === "FECHA_BAJA");
+                            const idxUso = encabezadosTabla.indexOf("FECHA_USO"); // Se agrega búsqueda de nueva columna
 
-                            // Escritura Atómica
+                            // Generamos UNA SOLA estampa de tiempo para garantizar sincronía criptográfica exacta en toda la fila
+                            const fechaTransaccionObj = new Date();
+
+                            // 2. Extracción de formatos aislados (Backend Authority)
+                            const timestampTransaccion: string = fechaTransaccionObj.toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+                            const fechaAltaTransaccion: string = fechaTransaccionObj.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+                            // Escritura Atómica (Clonación del vector original)
                             const filaAtomicaModificada: ValorCelda[] = [...matrizValoresDB[indiceFilaEncontrada]];
+
+                            // Mapeo Base
                             filaAtomicaModificada[idxEstado] = nuevoEstado;
                             if (idxUsuario !== -1) filaAtomicaModificada[idxUsuario] = usuarioIngresado;
-                            if (idxAuditTrail !== -1) filaAtomicaModificada[idxAuditTrail] = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+                            if (idxAuditTrail !== -1) filaAtomicaModificada[idxAuditTrail] = timestampTransaccion;
 
+                            // Mapeo Dinámico de Fechas Operativas (Toggle)
+                            if (configuracionActiva.estadosBloqueantes.includes(nuevoEstado)) {
+                                // EVENTO: Inactivación / Baja
+                                if (idxCierre !== -1) filaAtomicaModificada[idxCierre] = fechaAltaTransaccion;
+                                if (idxUso !== -1) filaAtomicaModificada[idxUso] = "N/A"; // Se limpia porque ya no está en uso
+                            } else {
+                                // EVENTO: Reactivación / Puesta en Uso
+                                if (idxCierre !== -1) filaAtomicaModificada[idxCierre] = "N/A"; // Se limpia porque ya no está de baja
+                                if (idxUso !== -1) filaAtomicaModificada[idxUso] = fechaAltaTransaccion;
+                            }
+
+                            // Volcado síncrono a disco
                             tablaBaseDatos.getRangeBetweenHeaderAndTotal().getRow(indiceFilaEncontrada).setValues([filaAtomicaModificada]);
 
                             // Registro en Historial
@@ -318,7 +341,7 @@ async function main(
                                 if (headCaps === "USUARIO") return usuarioIngresado;
                                 if (headCaps === "MOTIVO") return motivoDeCambio.trim();
                                 if (headCaps === "CAMBIOS") return `ESTADO: [${estadoActual}] -> [${nuevoEstado}]`;
-                                if (headCaps === "FECHA_CAMBIO") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+                                if (headCaps === "FECHA_CAMBIO") return timestampTransaccion; // Reutilizamos el timestamp unificado
                                 return "";
                             });
                             tablaHistorial.addRow(-1, filaRegistroHistorial);
@@ -592,8 +615,7 @@ function auxiliarEncolarNotificacion(
             const hojaOutbox = tablaOutbox.getWorksheet();
             hojaOutbox.getProtection().unprotect(claveProteccion);
             tablaOutbox.addRow(-1, nuevaFila);
-            // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
-            // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+            hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
         } else {
             console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
         }

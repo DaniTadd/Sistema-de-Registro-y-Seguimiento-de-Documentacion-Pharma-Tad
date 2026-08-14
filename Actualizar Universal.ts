@@ -271,14 +271,23 @@ async function main(
                         const logDeCambios: string[] = [];
                         const cambiosPendientes: { columna: number, valor: string }[] = [];
 
-                        listaCamposObligatorios.forEach((campo: string) => {
-                            if (objetoDatosFormulario[campo] === "" || objetoDatosFormulario[campo] === null || objetoDatosFormulario[campo] === "N/A") {
-                                listaErroresValidacion.push(`Falta campo obligatorio: ${campo.replace(/_/g, " ")}`);
+                        // Validación estricta: Obligatorio por contrato (*), pero permeable al token explícito de excepción ("N/A")
+                        let indiceValidacionCampos: number = 0;
+                        while (indiceValidacionCampos < listaCamposObligatorios.length) {
+                            const campoObligatorio: string = listaCamposObligatorios[indiceValidacionCampos];
+                            const valorCampoObtenido: string = String(objetoDatosFormulario[campoObligatorio] || "").trim();
+
+                            // El campo solo falla si está totalmente vacío o es un nulo técnico. 
+                            // Si el usuario escribió "N/A" de forma explícita, el campo deja de estar vacío y la excepción es válida.
+                            if (valorCampoObtenido === "" || valorCampoObtenido.toUpperCase() === "NULL") {
+                                listaErroresValidacion.push(`Falta campo obligatorio: ${campoObligatorio.replace(/_/g, " ")}`);
                             }
-                        });
+
+                            indiceValidacionCampos++;
+                        }
 
                         encabezadosTabla.forEach((header: string, colIdx: number) => {
-                            if (["AUDIT_TRAIL", "ESTADO", "USUARIO", nombreCampoPrimario].includes(header)) return;
+                            if (["AUDIT_TRAIL", "ESTADO", "USUARIO", "FECHA_ALTA", nombreCampoPrimario].includes(header)) return;
 
                             if (objetoDatosFormulario.hasOwnProperty(header)) {
                                 const textoOriginal: string = matrizTextosDB[indiceFilaEncontrada][colIdx];
@@ -891,8 +900,7 @@ function auxiliarEncolarNotificacion(
             const hojaOutbox = tablaOutbox.getWorksheet();
             hojaOutbox.getProtection().unprotect(claveProteccion);
             tablaOutbox.addRow(-1, nuevaFila);
-            // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
-            // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+            hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
         } else {
             console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
         }

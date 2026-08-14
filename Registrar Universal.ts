@@ -448,14 +448,22 @@ async function main(
                 // -----------------------------------------------------------------------
 
                 tablaBaseDatos.getWorksheet().getProtection().unprotect(claveProteccion);
+
+                const fechaTransaccionObj = new Date();
+
+                // 2. Extracción de formatos aislados (Backend Authority)
+                const timestampTransaccion: string = fechaTransaccionObj.toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+                const fechaAltaTransaccion: string = fechaTransaccionObj.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+
+                // 3. Mapeo Vectorial
                 const filaBD: string[] = encabezadosTabla.map((enc: string) => {
                     if (enc === nombreCampoPrimario) return idGeneradoFinal;
                     if (enc === "USUARIO") return usuarioIngresado;
                     if (enc === "ESTADO") return configuracionActiva.estadoInicial;
-                    if (enc === "AUDIT_TRAIL") return new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+                    if (enc === "FECHA_ALTA") return fechaAltaTransaccion; // Formato: DD/MM/YYYY
+                    if (enc === "AUDIT_TRAIL") return timestampTransaccion; // Formato: DD/MM/YYYY, HH:MM:SS
                     return objetoDatosFormulario[enc] || "N/A";
                 });
-
                 // 1. ESCRITURA OPTIMISTA
                 tablaBaseDatos.addRow(-1, filaBD);
 
@@ -782,8 +790,7 @@ function auxiliarEncolarNotificacion(
             const hojaOutbox = tablaOutbox.getWorksheet();
             hojaOutbox.getProtection().unprotect(claveProteccion);
             tablaOutbox.addRow(-1, nuevaFila);
-            // REMOVIDO PARA PERMITIR BORRADO DESDE POWER AUTOMATE:
-            // hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
+            hojaOutbox.getProtection().protect({ allowAutoFilter: true }, claveProteccion);
         } else {
             console.log("[SYS_WARNING] 'TablaNotificaciones_Outbox' no encontrada.");
         }
