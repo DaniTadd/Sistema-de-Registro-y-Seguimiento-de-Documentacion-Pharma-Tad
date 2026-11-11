@@ -1,90 +1,79 @@
-# 🚀 SGC-Engine v3.1: High-Integrity Excel-Centric Architecture
+# 🔬 QA-ALCOA-Engine: Framework Transaccional para Excel Online (Office Scripts)
 
-![Version](https://img.shields.io/badge/version-4.0.0-blue.svg?style=for-the-badge)
-![Tech](https://img.shields.io/badge/Office_Scripts-TypeScript-3178C6.svg?style=for-the-badge)
-![Security](https://img.shields.io/badge/Security-SHA--256_Encryption-red.svg?style=for-the-badge)
-![Philosophy](https://img.shields.io/badge/UX-Excel--Centric-green.svg?style=for-the-badge)
+Un motor de gestión de registros de calidad y trazabilidad documental (ALCOA+) construido enteramente sobre Microsoft Excel Online, Office Scripts (TypeScript) y Power Automate.
 
-## 1. Fundamentos de la Arquitectura
-
-La versión 3.0 del SGC-Engine establece una migración desde un modelo basado en flujos en la nube hacia una arquitectura de procesamiento local en Excel (Office Scripts). 
-
-Esta decisión arquitectónica responde a la necesidad de mitigar la latencia y eliminar la dependencia de servidores externos. Al ejecutar la lógica de validación de forma nativa en la hoja de cálculo, se asegura que el registro de la información sea estrictamente contemporáneo al momento de la validación, garantizando la trazabilidad bajo normativas GxP.
+Este proyecto es una prueba de concepto que demuestra cómo es posible inyectar rigor transaccional, criptografía SHA-256 y reglas de negocio relacionales en una plataforma de ofimática genérica, utilizando herramientas nativas de Microsoft 365 sin costos de licencias adicionales.
 
 ---
 
-## ⚖️ ¿Por qué abandonar Power Automate? El Business Case de la "Fricción Cero"
+## 💡 Motivación y Criterios de Elección
 
-La automatización de versiones anteriores dependía de puentes externos. Esta versión rompe ese esquema basándose en tres pilares de eficiencia:
+En la industria farmacéutica y entornos regulados (normas GMP / ISO), los sistemas de gestión de calidad (QMS) suelen ser monolíticos, costosos y lentos de adaptar. Por otro lado, el uso de planillas de cálculo (Excel) para llevar registros de calidad presenta debilidades intrínsecas: falta de control de cambios, riesgo de alteración de datos (voluntaria o involuntaria) y ausencia de integridad referencial.
 
-### A. Eliminación de Latencia (Real-Time Integrity)
-Al ejecutar los scripts directamente en el motor de Excel, la respuesta es instantánea. Se elimina el tiempo de "disparo" y "procesamiento" de Power Automate, garantizando que el dato se registre en el momento exacto en que se valida (Contemporaneidad ALCOA+).
-
-### B. Adopción con Fricción Cero y Eficiencia Operativa
-
-El diseño de la herramienta prioriza la adaptabilidad mediante la utilización de recursos preexistentes, sin incurrir en costos de licenciamiento de software de terceros:
-
-* **Adopción Orgánica (Native UX):** La interfaz de captura se mantiene en el entorno habitual (Excel). Si el analista comprende el uso de una hoja de cálculo, comprende el uso del sistema sin salir de su zona de confort.
-
-* **Procesamiento I/O Optimizado:** Para evitar el colapso de memoria frente a las limitaciones de las APIs de Excel, el sistema implementa lectura y escritura por lotes (*Batching*). Las consultas y validaciones se resuelven íntegramente en memoria RAM, reduciendo las llamadas de red y garantizando una respuesta instantánea.
-
-### C. Sin Costos de Licenciamiento
-Se elimina la dependencia de conectores premium o flujos de Power Automate que consumen cuotas de ejecución, maximizando el retorno de inversión (ROI) sobre la licencia base de Microsoft 365.
+**QA-ALCOA-Engine** nace para cerrar esa brecha. Se eligió Office Scripts (TypeScript) operando sobre Excel Online porque permite:
+* **Ejecución del lado del servidor:** Los scripts corren en la nube de Microsoft, asegurando que todos los usuarios ejecuten la misma versión del código sin depender de macros VBA locales (las cuales suelen ser bloqueadas por políticas de seguridad IT corporativas).
+* **Adopción inmediata:** Mantiene la interfaz de usuario familiar de Excel, reduciendo a cero la curva de aprendizaje para los analistas de Calidad.
+* **Trazabilidad Inmutable:** Implementa un diseño *Append-Only* para historiales (*Audit Trails*) con firmas electrónicas por transacción.
 
 ---
 
-## 2. 🛡️ Pilares de Seguridad y Criptografía (Zero-Trust)
+## 🛠️ Arquitectura y Tecnologías
 
-Para compensar la eliminación del login de Power Automate, se implementó una capa de seguridad dentro de la planilla:
+El framework funciona mediante un modelo de separación estricta entre la Interfaz de Usuario y la Base de Datos:
+* **Hojas de Interfaz (`INP_`):** Formularios dinámicos donde el usuario ingresa datos. Poseen campos obligatorios, validación de formatos (ej. Fechas UTC) y celdas bloqueadas para identificadores primarios (`ID`).
+* **Hojas de Base de Datos (`BD_` y `HIST_`):** Tablas estructuradas ocultas (`veryHidden`) y protegidas.
+- **Controladores TypeScript:** Un conjunto de scripts transaccionales (`Registrar`, `Actualizar`, `Cambio de Estado`, `Anular`) y utilitarios de interfaz (`Buscar`, `Limpiar Formulario`, `Ocultar/Mostrar Hojas`) que aplican lógica de negocio leyendo una tabla de configuración (`TablaReglas`) en tiempo de ejecución.
+* **Integridad Criptográfica:** Sellado en vivo mediante **SHA-256** (con *salt*) de las tablas maestras, para detectar y bloquear alteraciones manuales no autorizadas a nivel archivo.
+* **RPA (Power Automate):** Cola de salida (*Outbox*) para notificaciones y reportes asincrónicos.
 
-*   **Identidad Digital SHA-256:** Las contraseñas de los usuarios ya no existen en texto plano. Se almacenan como Hashes criptográficos en la `TablaUsuarios`. Ni siquiera un administrador del libro puede ver la clave real de un operario.
-*   **Protocolo de Firma "INICIAR":** Sistema de auto-gestión de credenciales. Los nuevos usuarios o aquellos con claves reseteadas inician su seguridad mediante un "flag" maestro que los obliga a establecer su propia firma digital en el primer uso.
-*   **Matriz de Integridad ALCOA+ Expandida:** La tabla de sellos digitales ahora no solo vigila los datos (BBDD e Historial), sino también la integridad de la propia infraestructura de seguridad (`TablaUsuarios`). Si alguien altera manualmente una clave en la tabla, el sistema se bloquea automáticamente.
-*   **Double-Check Intencional (Anti-Error):** En transacciones críticas (como **Anular**), el sistema exige el tipeo manual del ID. Esta "fricción positiva" garantiza que la acción sea deliberada y no un clic accidental.
-
----
-
-## 3. Desacoplamiento de Interfaz y Base de Datos (Ingeniería Creativa)
-
-El principal desafío operativo de utilizar Excel como sistema relacional es la rigidez estructural. Para lograr versatilidad frente a distintos tipos de registros (Desvíos, CAPAs, Equipos), se implementó un motor de abstracción semántica en memoria. 
-
-### 3 A. 🛠️ Innovaciones en la captura de los datos mediante prefijos como banderas (flags):
-
-* **Convención de Búsqueda Dinámica (`BUSQUEDA_`):** Se separó la acción de consultar de la acción de editar. Los campos con este prefijo permiten buscar registros por múltiples criterios (ID, TAG) sin interferir con las columnas reales de la base de datos.
-* **Puente de Normalización de Claves Foráneas (`FILTRO_`):** Para vincular entidades (ej. asignar una CAPA a un Desvío), el sistema utiliza menús desplegables amigables en la interfaz. El motor intercepta este prefijo en RAM y lo transforma en la Clave Foránea estricta que exige la base de datos, garantizando la integridad relacional sin exponer códigos complejos al usuario.
-* **Inmutabilidad de Identidad:** Una vez que un registro es capturado, su Clave Primaria (ID) queda bloqueada lógicamente. El motor detecta cualquier alteración manual de la identidad y bloquea la transacción.
-* **Campos Obligatorios Dinámicos:** Mediante uso del símbolo`*` se indica la obligatoriedad de un campo a la vez que el motor discrimina inteligentemente los campos operativos de los campos de búsqueda, evitando exigir un ID cuando el objetivo de la transacción es, precisamente, crear un registro nuevo.
-* **Independencia Estructural:** El uso de prefijos para discriminar la funcionalidad de campos en formularios y BBDD permite insertar columnas auxiliares de soporte (como `COD_ANTERIOR` en un caso de "migración de planillas") sin quebrar la lógica transaccional.
-
-## 4. Estabilidad Transaccional y Concurrencia
-
-* **Control de Concurrencia Optimista (OCC):** El sistema mitiga el riesgo de *Lost Update* (sobreescritura accidental entre múltiples analistas). Al actualizar un registro, el motor compara los *timestamps* en tiempo real; si detecta que otro operador modificó el archivo en el ínterin, la transacción se aborta de forma segura.
-
-
-## 🛠️ Innovaciones en el Diseño de Datos
-
-### 🧬 Validación de Dependencias Dinámicas
-El motor ahora incluye el operador `DEPENDENCIAS_CERRADAS`. Esto permite, por ejemplo, impedir el cierre de un Desvío si existen CAPAs asociadas que aún permanecen abiertas, consultando las relaciones en tiempo real sin necesidad de columnas auxiliares con fórmulas.
-
-### 🧹 Limpieza Quirúrgica (Preservación de Inteligencia)
-El motor de limpieza diferencia entre datos transaccionales y datos de sesión. Al finalizar un registro, limpia el formulario pero preserva el **ID** y el **Usuario** por persistencia visual, enviando valores controlados a la base de datos para no corromper columnas calculadas o fórmulas nativas de Excel.
+Para comprender a fondo la estructura de tablas, cómo crear reglas de negocio nuevas, o cómo inicializar el sellado criptográfico, consultá el [Manual de Configuración y Arquitectura](MANUAL_CONFIGURACION.md).
 
 ---
 
-## 🚀 Roadmap de Evolución
+## 🚀 Despliegue y Desarrollo Local (`puente.py`)
 
-*   **v3.1 (Actual):** Arquitectura Excel-Centric, Hashes de seguridad, validación de dependencias campos de `BUSQUEDA_` y `FILTRO_`
-*   **v4.0 (Visión):** Dashboard nativo de consumo de los datos volcados en esta planilla con datos productivos.
+Office Scripts no posee integración nativa directa con Git. Para desarrollar localmente usando un IDE (como Visual Studio Code) y mantener el control de versiones sin perder la sincronización con Excel Online, este repositorio incluye un script de automatización en Python (`puente.py`).
 
----
+El script gestiona de manera transparente la **segregación entre el Entorno de Desarrollo y el Entorno de Producción**, permitiendo iterar en planillas de pruebas sin riesgo de alterar el código en uso por la planta.
 
-## 👨‍💻 El Rigor detrás del Código
+### Configuración del entorno
+Para proteger la privacidad de las rutas corporativas de cada desarrollador, la configuración física local está excluida del control de versiones mediante `.gitignore`. Para configurar el entorno:
 
-Este sistema sigue los principios de la **Rigurosidad Pragmática**:
-*   **SESE (Single Entry, Single Exit):** Código predecible y auditable.
-*   **Manejo Híbrido de Errores:** Los errores de negocio informan al usuario; los de infraestructura protegen el sistema.
-*   **Zero Silent Failures:** Si algo falla, el sistema se bloquea y avisa. No hay lugar para la ambigüedad.
+1. Cloná este repositorio.
+2. Buscá el archivo `config.example.py` en la raíz del proyecto.
+3. Duplicalo y renombralo como `config.py` (este archivo ya está ignorado por Git).
+4. Editá el nuevo archivo definiendo las rutas físicas hacia tu OneDrive personal y la biblioteca sincronizada de SharePoint:
+   ```python
+   from pathlib import Path
 
----
-*Desarrollado bajo estándares **GMP** (Good Manufacturing Practices) para garantizar que el dato sea el activo más seguro de la compañía.*
+   # 1. RUTA DE DESARROLLO (OneDrive personal para pruebas con sufijo _DEV)
+   RUTA_ONEDRIVE_DEV = Path(r"C:/Users/TuUsuario/OneDrive/Documentos/Office Scripts")
 
+   # 2. RUTA DE PRODUCCIÓN (SharePoint oficial de Calidad sincronizado)
+   RUTA_SHAREPOINT_PROD = Path(r"C:/Users/TuUsuario/Organizacion/Sitio - Documentos/Office Scripts")
+   ```
+
+### Sincronización y Modos de Ejecución
+
+Los archivos de código en el repositorio se desarrollan con el sufijo `_DEV.ts` (ej. `Registrar Universal_DEV.ts`). `puente.py` maneja la inyección según el comando ejecutado:
+
+* **Desarrollo (por defecto):**
+  Actualiza únicamente los contenedores `_DEV.osts` en tu OneDrive local vinculados a tus planillas de ensayo.
+  ```bash
+  python puente.py
+  ```
+* **Pase a Producción (`--prod` o `-p`):**
+  Toma los archivos `_DEV.ts`, les retira automáticamente el sufijo `_DEV` y refresca los `.osts` productivos oficiales en SharePoint (ej. `Registrar Universal.osts`).
+  ```bash
+  python puente.py --prod
+  ```
+* **Sincronización Total (`--ambos` o `-a`):**
+  Actualiza ambos entornos en una sola operación.
+  ```bash
+  python puente.py --ambos
+  ```
+
+> ⚠️ **Nota:** OneDrive / SharePoint puede demorar entre 10 y 15 segundos en sincronizar los archivos físicos hacia los servidores de Microsoft. Aguardá ese tiempo antes de testear los botones en Excel Online.
+
+## 📄 Licencia
+Este proyecto se distribuye bajo la licencia MIT. Consultá el archivo `LICENSE` para más información.

@@ -97,7 +97,7 @@ function main(workbook: ExcelScript.Workbook) {
                     resultadoOperacion = { success: false, message: "Validación: Riesgo de ambigüedad. Utilice solo UN campo de búsqueda a la vez.", logLevel: 'WARNING' };
                 } else {
                     
-                    const encabezadosBD: string[] = tablaObjetivo.getHeaderRowRange().getValues()[0].map(h => String(h).trim().toUpperCase());
+                    const encabezadosBD: string[] = tablaObjetivo.getHeaderRowRange().getValues()[0].map(h => String(h).trim().toUpperCase().replace(/\s/g, "_"));
                     const datosBD: (string | number | boolean)[][] = tablaObjetivo.getRangeBetweenHeaderAndTotal().getValues();
                     const indiceColumnaBusqueda: number = encabezadosBD.indexOf(etiquetaCriterioBusqueda);
 

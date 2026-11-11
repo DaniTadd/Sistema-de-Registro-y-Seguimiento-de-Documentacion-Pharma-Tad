@@ -51,26 +51,23 @@ function main(workbook: ExcelScript.Workbook) {
     // --- II. EJECUCIÓN DEL MOTOR DE LIMPIEZA (SESE) ---
     if (ejecucionHabilitada && hojaActivaWS) {
         try {
-            const rangoUsado = hojaActivaWS.getUsedRange();
+            const rangoEtiquetas = hojaActivaWS.getRange("B:B").getUsedRange();
             
-            if (rangoUsado) {
-                // Cálculo de la última fila real para no barrer un millón de filas en vano
-                const ultimaFilaFisica: number = rangoUsado.getLastCell().getRowIndex() + 1; // +1 por notación base 1 de Excel
+            if (rangoEtiquetas) {
+                const matrizDatosFormulario: (string | number | boolean)[][] = rangoEtiquetas.getResizedRange(0, 1).getValues();
+                const indiceFilInicio: number = rangoEtiquetas.getRowIndex();
                 
-                if (ultimaFilaFisica >= 2) {
-                    // Abstracción del rango objetivo: Columna C (Datos), desde fila 2 (omitiendo encabezado)
-                    const rangoLimpieza = hojaActivaWS.getRange(`C2:C${ultimaFilaFisica}`);
-                    
-                    // Apertura de Bóveda
-                    hojaActivaWS.getProtection().unprotect(claveSeguridadSistema);
-                    
-                    // Mutación destructiva controlada (Solo contenido, preserva formato y validación de datos)
-                    rangoLimpieza.clear(ExcelScript.ClearApplyTo.contents);
-                    
-                    resultadoOperacion = { success: true, message: "Formulario limpio y listo.", logLevel: 'SUCCESS' };
-                } else {
-                    resultadoOperacion = { success: true, message: "El formulario ya estaba vacío.", logLevel: 'INFO' };
-                }
+                hojaActivaWS.getProtection().unprotect(claveSeguridadSistema);
+
+                matrizDatosFormulario.forEach((fila: (string | number | boolean)[], i: number) => {
+                    const etiquetaLimpia: string = String(fila[0]).trim();
+                    if (etiquetaLimpia !== "") {
+                        // Borra el contenido de la celda contigua a la derecha (Columna C) para cada etiqueta hallada
+                        hojaActivaWS.getRangeByIndexes(i + indiceFilInicio, 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
+                    }
+                });
+
+                resultadoOperacion = { success: true, message: "Formulario limpio y listo.", logLevel: 'SUCCESS' };
             } else {
                 resultadoOperacion = { success: true, message: "El formulario está vacío.", logLevel: 'INFO' };
             }

@@ -36,6 +36,7 @@ async function main(
     let tablaIntegridad: ExcelScript.Table | undefined;
     let hojaMaestrosWS: ExcelScript.Worksheet | undefined;
     let claveProteccion: string = "";
+    let tablasEventosModificadas: ExcelScript.Table[] = [];
 
     try {
         // --- 1. DETECCIÓN DEL MÓDULO E INFRAESTRUCTURA ---
@@ -62,8 +63,10 @@ async function main(
         tablaHistorial = workbook.getTable(configuracionActiva.historial);
         tablaUsuarios = workbook.getTable("TablaUsuarios");
         tablaIntegridad = workbook.getTable("TablaIntegridad");
+        const tablaPermisosMaestra = workbook.getTable("TablaPermisos");
+        const tablaReglasMaestra = hojaMaestrosWS ? hojaMaestrosWS.getTable("TablaReglas") : undefined;
 
-        if (!hojaEntradaWS || !hojaMaestrosWS || !itemClaveSistema || !itemSalt || !tablaIntegridad || !tablaUsuarios || !tablaBaseDatos || !tablaHistorial) {
+        if (!hojaEntradaWS || !hojaMaestrosWS || !itemClaveSistema || !itemSalt || !tablaIntegridad || !tablaUsuarios || !tablaBaseDatos || !tablaHistorial || !tablaPermisosMaestra || !tablaReglasMaestra) {
             throw new Error("Infraestructura: Faltan componentes, variables criptográficas o tablas críticas.");
         }
 
@@ -76,23 +79,32 @@ async function main(
         const regBBDD = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
         const regHistorial = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
         const regUsuarios = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
+        const regPermisos = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaPermisos");
+        const regReglas = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaReglas");
 
         const hashInicio: string = "INICIAR";
         const hashBBDD_Maestro: string = regBBDD ? String(regBBDD[1]) : hashInicio;
         const hashHistorial_Maestro: string = regHistorial ? String(regHistorial[1]) : hashInicio;
         const hashUsuarios_Maestro: string = regUsuarios ? String(regUsuarios[1]) : hashInicio;
+        const hashPermisos_Maestro: string = regPermisos ? String(regPermisos[1]) : hashInicio;
+        const hashReglas_Maestro: string = regReglas ? String(regReglas[1]) : hashInicio;
+
 
         const hashVivoBBDD: string = await generarFirmaDigital(tablaBaseDatos, salt);
         const hashVivoHistorial: string = await generarFirmaDigital(tablaHistorial, salt);
         const hashVivoUsuarios: string = await generarFirmaDigital(tablaUsuarios, salt);
+        const hashVivoPermisos: string = await generarFirmaDigital(tablaPermisosMaestra, salt);
+        const hashVivoReglas: string = await generarFirmaDigital(tablaReglasMaestra, salt);
 
         let mensajeErrorIntegridad: string = "";
         if (hashBBDD_Maestro !== hashInicio && hashVivoBBDD !== hashBBDD_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en ${configuracionActiva.tabla}.`;
         else if (hashHistorial_Maestro !== hashInicio && hashVivoHistorial !== hashHistorial_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en ${configuracionActiva.historial}.`;
         else if (hashUsuarios_Maestro !== hashInicio && hashVivoUsuarios !== hashUsuarios_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaUsuarios.`;
+        else if (hashPermisos_Maestro !== hashInicio && hashVivoPermisos !== hashPermisos_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaPermisos.`;
+        else if (hashReglas_Maestro !== hashInicio && hashVivoReglas !== hashReglas_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaReglas.`;
 
         if (mensajeErrorIntegridad !== "") {
-            throw new Error(mensajeErrorIntegridad + " Contacte a Calidad.");
+            throw new Error(mensajeErrorIntegridad);
         }
 
         // --- 3. BATCH READ: CAPTURA DEL FORMULARIO EN MEMORIA ---
@@ -134,23 +146,21 @@ async function main(
             const listaErroresValidacion: string[] = [];
             const usuarioIngresado: string = usuarioEjecutor.trim();
             let actualizarFirmaUsuario: boolean = false;
+            const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
 
-            if (usuarioIngresado === "") {
-                listaErroresValidacion.push("Se requiere usuario autenticado para firmar cambios.");
+            if (usuarioIngresado === "" || !claveFirma || claveFirma.trim() === "") {
+                listaErroresValidacion.push("Se requiere usuario y clave válidos para firmar cambios.");
             } else {
-                const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
                 const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
 
                 if (indiceUsuario === -1) {
                     listaErroresValidacion.push(`Firma inválida: Usuario '${usuarioIngresado}' no registrado.`);
                 } else {
-                    const hashGuardado: string = String(matrizUsuarios[indiceUsuario][1]);
-                    const hashFirmaCalculado: string = sha256(claveFirma);
+                    const hashGuardado: string = String(matrizUsuarios[indiceUsuario][1]).trim();
+                    const hashFirmaCalculado: string = sha256(claveFirma + salt);
 
                     if (hashGuardado === "INICIAR" || hashGuardado === "0" || hashGuardado === "") {
                         matrizUsuarios[indiceUsuario][1] = hashFirmaCalculado;
-                        tablaUsuarios.getWorksheet().getProtection().unprotect(claveProteccion);
-                        tablaUsuarios.getRangeBetweenHeaderAndTotal().setValues(matrizUsuarios);
                         actualizarFirmaUsuario = true;
                     } else if (hashGuardado !== hashFirmaCalculado) {
                         listaErroresValidacion.push("Firma inválida: Credenciales incorrectas.");
@@ -161,19 +171,18 @@ async function main(
             const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
             const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
 
-            // Telemetría de diagnóstico empírico para inspeccionar las claves mapeadas en memoria RAM
-            console.log("--- [SYS_DEBUG_ACTUALIZAR] ---");
-            console.log("Nombre Campo Primario esperado en BBDD:", nombreCampoPrimario);
-            console.log("Objeto Datos Formulario completo:", JSON.stringify(objetoDatosFormulario));
-
-            // Resolución robusta: Busca el ID tanto en la clave primaria directa como en su equivalente BUSQUEDA_
             let idABuscar: string = String(objetoDatosFormulario[nombreCampoPrimario] || "").trim().toUpperCase();
-            if (!idABuscar || idABuscar === "N/A") {
-                const claveBusquedaAlternativa = Object.keys(objetoDatosFormulario).find(k => k.startsWith("BUSQUEDA_") && k.includes(nombreCampoPrimario.replace("ID_", "")));
-                if (claveBusquedaAlternativa) {
-                    idABuscar = String(objetoDatosFormulario[claveBusquedaAlternativa] || "").trim().toUpperCase();
-                }
+
+            // Detección de desincronización defensiva
+            const claveBusquedaAlternativa = Object.keys(objetoDatosFormulario).find(k => k.startsWith("BUSQUEDA_") && k.includes(nombreCampoPrimario.replace("ID_", "")));
+            const valorBusqueda: string = claveBusquedaAlternativa ? String(objetoDatosFormulario[claveBusquedaAlternativa] || "").trim().toUpperCase() : "";
+
+            if ((!idABuscar || idABuscar === "N/A") && valorBusqueda !== "" && valorBusqueda !== "N/A") {
+                listaErroresValidacion.push(`Desincronización: Ingresó un código en búsqueda [${valorBusqueda}] pero no presionó 'Buscar'. Presione 'Buscar' antes de actualizar.`);
+            } else if (idABuscar && idABuscar !== "N/A" && valorBusqueda !== "" && valorBusqueda !== "N/A" && idABuscar !== valorBusqueda) {
+                listaErroresValidacion.push(`Desincronización: El ID cargado en pantalla [${idABuscar}] no coincide con el campo de búsqueda [${valorBusqueda}]. Presione 'Buscar' de nuevo.`);
             }
+
             console.log("ID a buscar resuelto:", idABuscar);
             console.log("------------------------------");
 
@@ -287,9 +296,9 @@ async function main(
                         }
 
                         encabezadosTabla.forEach((header: string, colIdx: number) => {
-                            if (["AUDIT_TRAIL", "ESTADO", "USUARIO", "FECHA_ALTA", nombreCampoPrimario].includes(header)) return;
+                            const esColumnaSistema: boolean = ["AUDIT_TRAIL", "ESTADO", "USUARIO", "FECHA_ALTA", nombreCampoPrimario].includes(header);
 
-                            if (objetoDatosFormulario.hasOwnProperty(header)) {
+                            if (!esColumnaSistema && objetoDatosFormulario.hasOwnProperty(header)) {
                                 const textoOriginal: string = matrizTextosDB[indiceFilaEncontrada][colIdx];
                                 const valorNuevo: string = String(objetoDatosFormulario[header]);
                                 let textoNuevoFormateado: string = "";
@@ -332,7 +341,6 @@ async function main(
                         const reglasEventos: ValorCelda[][] = [];
                         const diccionarioTablasAuxiliares: { [nombreTabla: string]: { encabezados: string[], datos: ValorCelda[][], maxIdEvento?: number } } = {};
 
-                        const tablaReglasMaestra = hojaMaestrosWS.getTable("TablaReglas");
                         if (tablaReglasMaestra) {
                             const matrizReglasTodas: ValorCelda[][] = tablaReglasMaestra.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
 
@@ -345,7 +353,7 @@ async function main(
                                     const operador: string = String(regla[2]);
                                     const referenciaRaw: string = String(regla[3]);
 
-                                    if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A" || operador === "ES_UNICO_ALFANUMERICO") {
+                                    if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A" || operador === "MADRE_ABIERTA_AL_CREAR" || operador === "ES_UNICO_ALFANUMERICO") {
                                         const nombreTablaRequerida: string = referenciaRaw.split("[")[0];
 
                                         if (nombreTablaRequerida && !diccionarioTablasAuxiliares[nombreTablaRequerida]) {
@@ -353,7 +361,12 @@ async function main(
                                             if (tablaAuxiliar) {
                                                 const encabezadosAuxiliares: string[] = tablaAuxiliar.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
                                                 const datosAuxiliares: ValorCelda[][] = tablaAuxiliar.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
-                                                diccionarioTablasAuxiliares[nombreTablaRequerida] = { encabezados: encabezadosAuxiliares, datos: datosAuxiliares };
+                                                diccionarioTablasAuxiliares[nombreTablaRequerida] = {
+                                                    encabezados: encabezadosAuxiliares,
+                                                    datos: datosAuxiliares
+                                                };
+                                            } else {
+                                                throw new Error(`Error en TablaReglas: No existe la tabla '${nombreTablaRequerida}'.`);
                                             }
                                         }
                                     } // --- NUEVO: INTERCEPCIÓN DE EVENTOS ---
@@ -377,6 +390,8 @@ async function main(
                                                     datos: [],
                                                     maxIdEvento: maxIdObj
                                                 };
+                                            } else {
+                                                throw new Error(`Error en TablaReglas (LOG_EVENTO): No existe la tabla '${nombreTablaRequerida}'.`);
                                             }
                                         }
                                     }
@@ -441,6 +456,46 @@ async function main(
                                                 }
                                             }
                                         }
+                                    } else if (operador === "MADRE_ABIERTA_AL_CREAR") {
+                                        const idxColumnaForanea: number = encabezadosTabla.indexOf(claveCampoA);
+                                        const valorForaneoOriginal: string = idxColumnaForanea !== -1 ? String(valoresFilaOriginal[idxColumnaForanea]).trim().toUpperCase() : "";
+                                        const cambioEntidadMadre: boolean = (valorForaneoOriginal !== String(valorAValidar).trim().toUpperCase());
+
+                                        // En actualización, solo exige que la entidad madre esté ABIERTA si se está reasignando el registro hijo a otra madre distinta
+                                        if (cambioEntidadMadre) {
+                                            const segmentosCondicion: string[] = referenciaRaw.split(";");
+                                            if (segmentosCondicion.length === 3) {
+                                                const partesTabla: string[] = segmentosCondicion[0].split("[");
+                                                const nombreTabla: string = partesTabla[0];
+                                                const colIdDestino: string = partesTabla[1].replace("]", "");
+                                                const colEstadoDestino: string = segmentosCondicion[1].replace("[", "").replace("]", "");
+                                                const estadoRequerido: string = segmentosCondicion[2].toUpperCase();
+
+                                                const tablaEnMemoria = diccionarioTablasAuxiliares[nombreTabla];
+                                                if (tablaEnMemoria) {
+                                                    const indiceColId: number = tablaEnMemoria.encabezados.indexOf(colIdDestino);
+                                                    const indiceColEstado: number = tablaEnMemoria.encabezados.indexOf(colEstadoDestino);
+
+                                                    if (indiceColId !== -1 && indiceColEstado !== -1) {
+                                                        let estadoEncontrado: string = "";
+                                                        let indiceBusqueda: number = 0;
+                                                        let registroHallado: boolean = false;
+
+                                                        while (indiceBusqueda < tablaEnMemoria.datos.length && !registroHallado) {
+                                                            if (String(tablaEnMemoria.datos[indiceBusqueda][indiceColId]).toUpperCase() === String(valorAValidar).toUpperCase()) {
+                                                                estadoEncontrado = String(tablaEnMemoria.datos[indiceBusqueda][indiceColEstado]).toUpperCase();
+                                                                registroHallado = true;
+                                                            }
+                                                            indiceBusqueda++;
+                                                        }
+
+                                                        if (registroHallado && estadoEncontrado !== estadoRequerido) {
+                                                            listaErroresValidacion.push(mensajeErrorRegla);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     } else if (operador === "ES_UNICO_ALFANUMERICO") {
                                         const nombreTablaDestino: string = referenciaRaw.trim();
                                         const tablaEnMemoria = diccionarioTablasAuxiliares[nombreTablaDestino];
@@ -486,13 +541,15 @@ async function main(
                                         if (valorAValidar && valorB && valorAValidar !== "N/A" && valorB !== "N/A") {
                                             const fechaA: number = auxiliarParsearFechaANumero(valorAValidar);
                                             const fechaB: number = auxiliarParsearFechaANumero(valorB);
-                                            if (isNaN(fechaA) || isNaN(fechaB)) {
-                                                listaErroresValidacion.push(`Error: Formato de fecha inválido comparando reglas de negocio para ${claveCampoA.replace(/_/g, " ")}.`);
-                                            } else if (operador === "<=" && !(fechaA <= fechaB)) {
-                                                listaErroresValidacion.push(mensajeErrorRegla);
-                                            } else if (operador === ">=" && !(fechaA >= fechaB)) {
-                                                listaErroresValidacion.push(mensajeErrorRegla);
+                                            if (!isNaN(fechaA) && !isNaN(fechaB)) {
+                                                if (operador === "<=" && !(fechaA <= fechaB)) {
+                                                    listaErroresValidacion.push(mensajeErrorRegla);
+                                                } else if (operador === ">=" && !(fechaA >= fechaB)) {
+                                                    listaErroresValidacion.push(mensajeErrorRegla);
+                                                }
                                             }
+                                        } else if (operador === ">=" && (!valorB || valorB === "N/A" || valorB === "")) {
+                                            listaErroresValidacion.push(mensajeErrorRegla);
                                         }
                                     }
                                 }
@@ -581,6 +638,7 @@ async function main(
                                     if (tablaTarget) {
                                         tablaTarget.getWorksheet().getProtection().unprotect(claveProteccion);
                                         tablaTarget.addRow(-1, evento.filaData);
+                                        tablasEventosModificadas.push(tablaTarget);
                                     }
                                 });
                                 // ---------------------------------------
@@ -649,7 +707,9 @@ async function main(
                                 const idxHist: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
                                 if (idxHist !== -1) matrizSeg[idxHist][1] = nuevoSelloHistorial;
 
-                                if (actualizarFirmaUsuario) {
+                                if (actualizarFirmaUsuario || hashUsuarios_Maestro === hashInicio) {
+                                    tablaUsuarios.getWorksheet().getProtection().unprotect(claveProteccion);
+                                    tablaUsuarios.getRangeBetweenHeaderAndTotal().setValues(matrizUsuarios);
                                     const nuevoSelloUsuarios: string = await generarFirmaDigital(tablaUsuarios, salt);
                                     const idxUsu: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
                                     if (idxUsu !== -1) matrizSeg[idxUsu][1] = nuevoSelloUsuarios;
@@ -666,6 +726,15 @@ async function main(
                                     }
                                 }
                                 // -----------------------------------------------
+
+                                if (hashPermisos_Maestro === hashInicio) {
+                                    const idxPerm: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaPermisos");
+                                    if (idxPerm !== -1) matrizSeg[idxPerm][1] = hashVivoPermisos;
+                                }
+                                if (hashReglas_Maestro === hashInicio) {
+                                    const idxReg: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaReglas");
+                                    if (idxReg !== -1) matrizSeg[idxReg][1] = hashVivoReglas;
+                                }
 
                                 tablaIntegridad.getRangeBetweenHeaderAndTotal().setValues(matrizSeg);
                             }
@@ -694,22 +763,42 @@ async function main(
             if (tablaHistorial) auxiliarProtegerHoja(tablaHistorial.getWorksheet(), claveProteccion, resultadoOperacion);
             if (tablaUsuarios) auxiliarProtegerHoja(tablaUsuarios.getWorksheet(), claveProteccion, resultadoOperacion);
             if (tablaIntegridad) auxiliarProtegerHoja(tablaIntegridad.getWorksheet(), claveProteccion, resultadoOperacion);
+            tablasEventosModificadas.forEach((tablaEvento: ExcelScript.Table) => {
+                auxiliarProtegerHoja(tablaEvento.getWorksheet(), claveProteccion, resultadoOperacion);
+            });
         }
     }
 
     // --- FUNCIONES AUXILIARES (HELPERS) ---
 
+    // --- HELPERS ALCOA+ REFACTORIZADOS ---
     function auxiliarParsearFechaANumero(v: ValorCelda): number {
-        if (typeof v === "number") return v;
-        const numeroSerial = Number(v);
-        if (!isNaN(numeroSerial) && String(v).trim() !== "") return numeroSerial;
+        let resultadoMilisegundos: number = NaN;
+        const textoLimpio: string = String(v).trim();
+        const numeroSerial: number = typeof v === "number" ? v : Number(textoLimpio);
 
-        const partes: string[] = String(v).split("/");
-        if (partes.length === 3) {
-            const fechaObjeto = new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(partes[0]));
-            return (fechaObjeto.getFullYear() === parseInt(partes[2])) ? fechaObjeto.getTime() : NaN;
+        if (textoLimpio !== "" && !isNaN(numeroSerial) && numeroSerial >= 32874 && numeroSerial <= 73415) {
+            const diasEnteros: number = Math.floor(numeroSerial);
+            resultadoMilisegundos = (diasEnteros - 25569) * 86400000;
+        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(textoLimpio)) {
+            const partes: string[] = textoLimpio.split("/");
+            if (partes.length === 3) {
+                const dia: number = parseInt(partes[0], 10);
+                const mes: number = parseInt(partes[1], 10);
+                const anio: number = parseInt(partes[2], 10);
+                const msUTC: number = Date.UTC(anio, mes - 1, dia);
+                const fechaVerificacion: Date = new Date(msUTC);
+
+                if (
+                    fechaVerificacion.getUTCFullYear() === anio &&
+                    fechaVerificacion.getUTCMonth() === mes - 1 &&
+                    fechaVerificacion.getUTCDate() === dia
+                ) {
+                    resultadoMilisegundos = msUTC;
+                }
+            }
         }
-        return NaN;
+        return resultadoMilisegundos;
     }
 
     function auxiliarActualizarInterfazUX(hoja: ExcelScript.Worksheet, res: ResultadoAccion, colores: MapaColoresUX, pass: string): void {
@@ -756,7 +845,7 @@ async function main(
     function auxiliarLimpiarFormulario(hoja: ExcelScript.Worksheet, matriz: ValorCelda[][], filaInicio: number, campoId: string): void {
         matriz.forEach((fila: ValorCelda[], i: number) => {
             const claveCampo: string = String(fila[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
-            if (claveCampo !== "" && claveCampo !== campoId && claveCampo !== "MOTIVO") {
+            if (claveCampo.startsWith("BUSQUEDA_")) {
                 hoja.getRangeByIndexes(i + filaInicio, 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
             }
         });
@@ -770,6 +859,7 @@ async function generarFirmaDigital(tabla: ExcelScript.Table, salt: string): Prom
 }
 
 function sha256(s: string): string {
+    s = encodeURIComponent(s).replace(/%([0-9A-F]{2})/g, (_match: string, p1: string) => String.fromCharCode(parseInt(p1, 16)));
     let a: number = 0, b: number = 0, c: number = 0, d: number = 0, e: number = 0, f: number = 0, g: number = 0, h: number = 0;
     const chrsz: number = 8;
     function safe_add(x: number, y: number): number {

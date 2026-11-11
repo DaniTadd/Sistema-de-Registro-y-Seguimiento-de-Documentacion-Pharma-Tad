@@ -21,6 +21,8 @@ __pycache__/
 venv/
 env/
 .env
+consolidar.py
+contexto_proyecto.txt
 
 # --- 4. CONFIGURACIÓN LOCAL ---
 # CRÍTICO: Aquí va mi ruta de One Drive real, no debe siburse.

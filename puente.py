@@ -1,19 +1,23 @@
 import json
 import os
+import sys
 import time
 from typing import Dict, Any, List
 
 """
  * PROTOCOLO DE CONFIGURACIÓN DE SEGURIDAD
  * MOTIVO: Disociar las rutas físicas del código fuente para permitir la portabilidad 
- * y proteger la estructura de carpetas local.
+ * y proteger la estructura de carpetas local tanto en DEV como en PROD.
 """
 
 try:
-    from config import RUTA_ONEDRIVE_REAL
+    from config import RUTA_ONEDRIVE_DEV, RUTA_SHAREPOINT_PROD
+    
 except ImportError:
     # Estado de contingencia si el archivo de configuración no está presente
-    RUTA_ONEDRIVE_REAL = "RUTA_NO_CONFIGURADA"
+    RUTA_ONEDRIVE_DEV = "RUTA_NO_CONFIGURADA"
+    RUTA_SHAREPOINT_PROD = "RUTA_NO_CONFIGURADA"
+    
 
 def ejecutar_sincronizacion_par_archivos(ruta_fuente_ts: str, ruta_contenedor_osts: str) -> bool:
     """
@@ -53,64 +57,83 @@ def ejecutar_sincronizacion_par_archivos(ruta_fuente_ts: str, ruta_contenedor_os
     
     return estado_cambio_detectado
 
-def main() -> None:
+def sincronizar_directorio(directorio_raiz: str, directorio_destino: str, etiqueta_entorno: str, es_produccion: bool) -> None:
     """
-    Punto de entrada principal para el proceso de sincronización masiva.
+    Ejecuta el ciclo de sincronización contra un directorio destino (DEV o PROD).
+    Si es_produccion es True, elimina el sufijo '_DEV' de los nombres de destino.
     """
-    # 1. SETUP Y VALIDACIÓN DE ENTORNO
-    # Determinamos las rutas basándonos en el contexto de ejecución actual.
-    directorio_raiz_repositorio = os.getcwd()
-    directorio_destino_onedrive = RUTA_ONEDRIVE_REAL
-    nombre_identificador_repo = os.path.basename(directorio_raiz_repositorio)
-
-    print(f"🛠️  ORIGEN (Repositorio):  .../{nombre_identificador_repo}")
-    print(f"☁️  DESTINO (OneDrive):     [Ruta Protegida en config.py]")
+    print(f"\n🚀 INICIANDO SINCRONIZACIÓN -> [{etiqueta_entorno}]")
+    print(f"📁 Destino: {directorio_destino}")
     print("-" * 60)
 
-    # Verificamos que la ruta de destino sea válida y accesible
-    if directorio_destino_onedrive != "RUTA_NO_CONFIGURADA" and os.path.exists(directorio_destino_onedrive):
-        contador_archivos_actualizados: int = 0
-        contador_errores_encontrados: int = 0
-        lista_archivos_en_repo: List[str] = os.listdir(directorio_raiz_repositorio)
+    if directorio_destino == "RUTA_NO_CONFIGURADA" or not os.path.exists(directorio_destino):
+        print(f"⚠️ ALERTA CRÍTICA: No se puede acceder a la ruta de [{etiqueta_entorno}].")
+        print("    Verifique la ruta configurada en 'config.py'.")
+        return
 
-        # 2. BUCLE DE PROCESAMIENTO SECUENCIAL
-        # Recorremos el repositorio buscando archivos TypeScript candidatos a sincronizar.
-        for nombre_archivo in lista_archivos_en_repo:
-            # Filtramos solo archivos .ts (excluyendo archivos de definición .d.ts)
-            if nombre_archivo.endswith(".ts") and not nombre_archivo.endswith(".d.ts"):
-                nombre_base_script: str = nombre_archivo[:-3]
-                nombre_archivo_osts: str = nombre_base_script + ".osts"
+    contador_actualizados: int = 0
+    contador_errores: int = 0
+    lista_archivos: List[str] = os.listdir(directorio_raiz)
 
-                # Construcción de rutas absolutas para el par de archivos
-                ruta_completa_origen: str = os.path.join(directorio_raiz_repositorio, nombre_archivo)
-                ruta_completa_destino = os.path.join(directorio_destino_onedrive, nombre_archivo_osts)
+    for nombre_archivo in lista_archivos:
+        if nombre_archivo.endswith(".ts") and not nombre_archivo.endswith(".d.ts"):
+            nombre_base_script: str = nombre_archivo[:-3]  # Quita ".ts"
 
-                # Verificación de existencia en el destino antes de proceder
-                if os.path.exists(ruta_completa_destino):
-                    print(f"🔁 Verificando Sincronía: {nombre_base_script} ...")
-                    try:
-                        fue_actualizado = ejecutar_sincronizacion_par_archivos(ruta_completa_origen, ruta_completa_destino)
-                        if fue_actualizado:
-                            print(f"    ✅ STATUS: ACTUALIZADO -> El contenedor .osts ha sido refrescado.")
-                            contador_archivos_actualizados += 1
-                        else:
-                            print(f"    💤 STATUS: SINCRONIZADO -> No se requieren cambios.")
-                    except Exception:
-                        contador_errores_encontrados += 1
-                else:
-                    # Alerta de inconsistencia: Existe el código pero no el contenedor en OneDrive
-                    print(f"    ⚠️  OMITIDO: No se halló '{nombre_archivo_osts}' en el destino.")
+            # En Producción quitamos el sufijo '_DEV' del archivo destino .osts
+            if es_produccion and nombre_base_script.endswith("_DEV"):
+                nombre_base_destino = nombre_base_script[:-4]  # Quita '_DEV'
+            else:
+                nombre_base_destino = nombre_base_script
 
-        # 3. RESUMEN FINAL DE OPERACIÓN (LOG)
-        print("-" * 60)
-        print(f"📊 RESUMEN: {contador_archivos_actualizados} actualizados | {contador_errores_encontrados} errores.")
+            nombre_archivo_osts: str = nombre_base_destino + ".osts"
 
+            ruta_completa_origen: str = os.path.join(directorio_raiz, nombre_archivo)
+            ruta_completa_destino = os.path.join(str(directorio_destino), nombre_archivo_osts)
+
+            if os.path.exists(ruta_completa_destino):
+                print(f"🔁 Verificando: {nombre_archivo} -> {nombre_archivo_osts} ...")
+                try:
+                    fue_actualizado = ejecutar_sincronizacion_par_archivos(ruta_completa_origen, ruta_completa_destino)
+                    if fue_actualizado:
+                        print("    ✅ STATUS: ACTUALIZADO -> El contenedor .osts ha sido refrescado.")
+                        contador_actualizados += 1
+                    else:
+                        print("    💤 STATUS: SINCRONIZADO -> Sin cambios requeridos.")
+                except Exception:
+                    contador_errores += 1
+            else:
+                print(f"    ⚠️  OMITIDO: No se halló '{nombre_archivo_osts}' en el destino.")
+
+    print(f"📊 RESUMEN [{etiqueta_entorno}]: {contador_actualizados} actualizados | {contador_errores} errores.")
+
+
+def main() -> None:
+    """
+    Punto de entrada principal. Determina el entorno a sincronizar según los argumentos:
+      python puente.py          -> Sincroniza DESARROLLO (por defecto)
+      python puente.py --prod   -> Sincroniza PRODUCCIÓN (SharePoint)
+      python puente.py --ambos  -> Sincroniza ambos entornos
+    """
+    # Determinamos la raíz del repositorio de forma absoluta
+    directorio_raiz_repositorio = os.path.dirname(os.path.abspath(__file__))
+    nombre_repo = os.path.basename(directorio_raiz_repositorio)
+
+    print(f"🛠️  ORIGEN (Repositorio): .../{nombre_repo}")
+    print("-" * 60)
+
+    # Detección de argumentos de línea de comandos
+    argumentos = [arg.lower() for arg in sys.argv[1:]]
+
+    if "--ambos" in argumentos or "-a" in argumentos:
+        sincronizar_directorio(directorio_raiz_repositorio, RUTA_ONEDRIVE_DEV, "DESARROLLO (OneDrive)", es_produccion=False)
+        sincronizar_directorio(directorio_raiz_repositorio, RUTA_SHAREPOINT_PROD, "PRODUCCIÓN (SharePoint)", es_produccion=True)
+    elif "--prod" in argumentos or "-p" in argumentos:
+        sincronizar_directorio(directorio_raiz_repositorio, RUTA_SHAREPOINT_PROD, "PRODUCCIÓN (SharePoint)", es_produccion=True)
     else:
-        # FALLA DE SEGURIDAD O CONFIGURACIÓN
-        print("⚠️ ALERTA CRÍTICA: Fallo en la conexión con OneDrive o falta 'config.py'.")
-        print("    Acción Requerida: Verifique que RUTA_ONEDRIVE_REAL sea correcta.")
+        # Modo por defecto: DESARROLLO
+        sincronizar_directorio(directorio_raiz_repositorio, RUTA_ONEDRIVE_DEV, "DESARROLLO (OneDrive)", es_produccion=False)
+
 
 if __name__ == "__main__":
     main()
-    # Pausa de cortesía para lectura de logs en consola
-    time.sleep(3)
+    time.sleep(2)

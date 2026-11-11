@@ -65,8 +65,10 @@ async function main(
     tablaHistorial = workbook.getTable(configuracionActiva.historial);
     tablaUsuarios = workbook.getTable("TablaUsuarios");
     tablaIntegridad = workbook.getTable("TablaIntegridad");
+    const tablaPermisosMaestra = workbook.getTable("TablaPermisos");
+    const tablaReglasMaestra = hojaMaestrosWS ? hojaMaestrosWS.getTable("TablaReglas") : undefined;
 
-    if (!hojaEntradaWS || !hojaMaestrosWS || !itemClaveSistema || !itemSalt || !tablaIntegridad || !tablaUsuarios || !tablaBaseDatos || !tablaHistorial) {
+    if (!hojaEntradaWS || !hojaMaestrosWS || !itemClaveSistema || !itemSalt || !tablaIntegridad || !tablaUsuarios || !tablaBaseDatos || !tablaHistorial || !tablaPermisosMaestra || !tablaReglasMaestra) {
       throw new Error("Infraestructura: Faltan componentes, variables criptográficas o tablas críticas.");
     }
 
@@ -80,23 +82,32 @@ async function main(
     const regBBDD = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.tabla);
     const regHistorial = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
     const regUsuarios = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
+    const regPermisos = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaPermisos");
+    const regReglas = dataIntegridad.find((f: ValorCelda[]) => String(f[0]) === "TablaReglas");
+
 
     const hashInicio: string = "INICIAR";
     const hashBBDD_Maestro: string = regBBDD ? String(regBBDD[1]) : hashInicio;
     const hashHistorial_Maestro: string = regHistorial ? String(regHistorial[1]) : hashInicio;
     const hashUsuarios_Maestro: string = regUsuarios ? String(regUsuarios[1]) : hashInicio;
+    const hashPermisos_Maestro: string = regPermisos ? String(regPermisos[1]) : hashInicio;
+    const hashReglas_Maestro: string = regReglas ? String(regReglas[1]) : hashInicio;
 
     const hashVivoBBDD: string = await generarFirmaDigital(tablaBaseDatos, salt);
     const hashVivoHistorial: string = await generarFirmaDigital(tablaHistorial, salt);
     const hashVivoUsuarios: string = await generarFirmaDigital(tablaUsuarios, salt);
+    const hashVivoPermisos: string = await generarFirmaDigital(tablaPermisosMaestra, salt);
+    const hashVivoReglas: string = await generarFirmaDigital(tablaReglasMaestra, salt);
 
     let mensajeErrorIntegridad: string = "";
     if (hashBBDD_Maestro !== hashInicio && hashVivoBBDD !== hashBBDD_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en ${configuracionActiva.tabla}.`;
     else if (hashHistorial_Maestro !== hashInicio && hashVivoHistorial !== hashHistorial_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en ${configuracionActiva.historial}.`;
     else if (hashUsuarios_Maestro !== hashInicio && hashVivoUsuarios !== hashUsuarios_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaUsuarios.`;
+    else if (hashPermisos_Maestro !== hashInicio && hashVivoPermisos !== hashPermisos_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaPermisos.`;
+    else if (hashReglas_Maestro !== hashInicio && hashVivoReglas !== hashReglas_Maestro) mensajeErrorIntegridad = `ERROR: Integridad violada en TablaReglas.`;
 
     if (mensajeErrorIntegridad !== "") {
-      throw new Error(mensajeErrorIntegridad + " Contacte a Calidad.");
+      throw new Error(mensajeErrorIntegridad);
     }
 
     // --- 3. BATCH READ: CAPTURA DEL FORMULARIO ---
@@ -119,6 +130,7 @@ async function main(
       const listaErroresValidacion: string[] = [];
       const usuarioIngresado: string = usuarioEjecutor.trim();
       let actualizarFirmaUsuario: boolean = false;
+      const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
 
       const encabezadosTabla: string[] = tablaBaseDatos.getHeaderRowRange().getValues()[0].map((h: ValorCelda) => String(h).toUpperCase().replace(/\s/g, "_"));
       const nombreCampoPrimario: string = encabezadosTabla.find(header => header.startsWith("ID_")) || encabezadosTabla[0];
@@ -127,22 +139,19 @@ async function main(
       const idTipeado: string = idConfirmacion.trim().toUpperCase();
 
       // --- 4. AUTENTICACIÓN Y DOBLE CHEQUEO INTENCIONAL ---
-      if (!usuarioIngresado || usuarioIngresado === "") {
-        listaErroresValidacion.push("El campo USUARIO es obligatorio para firmar la anulación.");
+      if (!usuarioIngresado || usuarioIngresado === "" || !claveFirma || claveFirma.trim() === "") {
+        listaErroresValidacion.push("Usuario y clave válidos son obligatorios para firmar la anulación.");
       } else {
-        const matrizUsuarios: ValorCelda[][] = tablaUsuarios.getRangeBetweenHeaderAndTotal().getValues() as ValorCelda[][];
         const indiceUsuario: number = matrizUsuarios.findIndex((f: ValorCelda[]) => String(f[0]).trim().toUpperCase() === usuarioIngresado.trim().toUpperCase());
 
         if (indiceUsuario === -1) {
           listaErroresValidacion.push(`Firma inválida: Usuario '${usuarioIngresado}' no registrado.`);
         } else {
-          const hashGuardado: string = String(matrizUsuarios[indiceUsuario][1]);
-          const hashFirmaCalculado: string = sha256(claveFirma);
+          const hashGuardado: string = String(matrizUsuarios[indiceUsuario][1]).trim();
+          const hashFirmaCalculado: string = sha256(claveFirma + salt);
 
           if (hashGuardado === "INICIAR" || hashGuardado === "0" || hashGuardado === "") {
             matrizUsuarios[indiceUsuario][1] = hashFirmaCalculado;
-            tablaUsuarios.getWorksheet().getProtection().unprotect(claveProteccion);
-            tablaUsuarios.getRangeBetweenHeaderAndTotal().setValues(matrizUsuarios);
             actualizarFirmaUsuario = true;
           } else if (hashGuardado !== hashFirmaCalculado) {
             listaErroresValidacion.push("Firma inválida: Credenciales incorrectas.");
@@ -215,7 +224,6 @@ async function main(
           } else {
 
             // --- 5. MOTOR DINÁMICO: MAPEO DE ANULACIÓN EN CASCADA (BATCHING I/O TOTAL) ---
-            const tablaReglasMaestra = hojaMaestrosWS.getTable("TablaReglas");
 
             const diccionarioTablasAuxiliares: {
               [nombreTabla: string]: {
@@ -274,6 +282,8 @@ async function main(
                           historialEncabezados: encabHistHija,
                           historialMaxId: maxIdHistHija
                         };
+                      } else {
+                        throw new Error(`Error en TablaReglas: No existe la tabla '${nombreTablaRef}'.`);
                       }
                     }
                   }
@@ -413,7 +423,8 @@ async function main(
               }
             }
 
-            resultadoOperacion.message = `✅ ${configuracionActiva.etiqueta.charAt(0).toUpperCase() + configuracionActiva.etiqueta.slice(1)} #${idTipeado} y sus dependencias ANULAD${configuracionActiva.genero.toUpperCase()}S con éxito.`;
+            const textoDependencias: string = reglasCascadaAplicables.length > 0 ? ` y sus dependencias ANULAD${configuracionActiva.genero.toUpperCase()}S` : ` ANULAD${configuracionActiva.genero.toUpperCase()}`;
+            resultadoOperacion.message = `✅ ${configuracionActiva.etiqueta.charAt(0).toUpperCase() + configuracionActiva.etiqueta.slice(1)} #${idTipeado}${textoDependencias} con éxito.`;
             resultadoOperacion.logLevel = 'EXITO';
 
             // FIX DE SEGURIDAD: Apertura JIT milisegundos antes del borrado
@@ -432,7 +443,9 @@ async function main(
             const idxHist: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === configuracionActiva.historial);
             if (idxHist !== -1) matrizSeg[idxHist][1] = await generarFirmaDigital(tablaHistorial, salt);
 
-            if (actualizarFirmaUsuario) {
+            if (actualizarFirmaUsuario || hashUsuarios_Maestro === hashInicio) {
+              tablaUsuarios.getWorksheet().getProtection().unprotect(claveProteccion);
+              tablaUsuarios.getRangeBetweenHeaderAndTotal().setValues(matrizUsuarios);
               const idxUsu: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaUsuarios");
               if (idxUsu !== -1) matrizSeg[idxUsu][1] = await generarFirmaDigital(tablaUsuarios, salt);
             }
@@ -447,6 +460,14 @@ async function main(
               }
             }
 
+            if (hashPermisos_Maestro === hashInicio) {
+              const idxPerm: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaPermisos");
+              if (idxPerm !== -1) matrizSeg[idxPerm][1] = hashVivoPermisos;
+            }
+            if (hashReglas_Maestro === hashInicio) {
+              const idxReg: number = matrizSeg.findIndex((f: ValorCelda[]) => String(f[0]) === "TablaReglas");
+              if (idxReg !== -1) matrizSeg[idxReg][1] = hashVivoReglas;
+            }
             tablaIntegridad.getRangeBetweenHeaderAndTotal().setValues(matrizSeg);
           }
         }
@@ -522,7 +543,7 @@ async function main(
   function auxiliarLimpiarFormulario(hoja: ExcelScript.Worksheet, matriz: ValorCelda[][], filaInicio: number, campoId: string): void {
     matriz.forEach((fila: ValorCelda[], i: number) => {
       const claveCampo: string = String(fila[0]).trim().toUpperCase().replace("*", "").replace(/\s/g, "_");
-      if (claveCampo !== "" && claveCampo !== campoId) {
+      if (claveCampo !== "" && claveCampo !== "MOTIVO") {
         hoja.getRangeByIndexes(i + filaInicio, 2, 1, 1).clear(ExcelScript.ClearApplyTo.contents);
       }
     });
@@ -536,6 +557,7 @@ async function generarFirmaDigital(tabla: ExcelScript.Table, salt: string): Prom
 }
 
 function sha256(s: string): string {
+  s = encodeURIComponent(s).replace(/%([0-9A-F]{2})/g, (_match: string, p1: string) => String.fromCharCode(parseInt(p1, 16)));
   let a: number = 0, b: number = 0, c: number = 0, d: number = 0, e: number = 0, f: number = 0, g: number = 0, h: number = 0;
   const chrsz: number = 8;
   function safe_add(x: number, y: number): number {
@@ -656,21 +678,21 @@ function auxiliarEncolarNotificacion(
 }
 
 function auxiliarFormatearFechaAString(valor: ValorCelda): string {
-    const numeroSerial = Number(valor);
-    if (!isNaN(numeroSerial) && String(valor).trim() !== "") {
-        const milisegundos: number = Math.round((numeroSerial - 25569) * 86400 * 1000) + 43200000;
-        const fechaObjeto = new Date(milisegundos);
-        const dia: string = String(fechaObjeto.getDate()).padStart(2, '0');
-        const mes: string = String(fechaObjeto.getMonth() + 1).padStart(2, '0');
-        return `${dia}/${mes}/${fechaObjeto.getFullYear()}`;
-    }
+  const numeroSerial = Number(valor);
+  if (!isNaN(numeroSerial) && String(valor).trim() !== "") {
+    const milisegundos: number = Math.round((numeroSerial - 25569) * 86400 * 1000) + 43200000;
+    const fechaObjeto = new Date(milisegundos);
+    const dia: string = String(fechaObjeto.getDate()).padStart(2, '0');
+    const mes: string = String(fechaObjeto.getMonth() + 1).padStart(2, '0');
+    return `${dia}/${mes}/${fechaObjeto.getFullYear()}`;
+  }
 
-    const partes: string[] = String(valor).split("/");
-    if (partes.length === 3) {
-        const dia: string = String(parseInt(partes[0])).padStart(2, '0');
-        const mes: string = String(parseInt(partes[1])).padStart(2, '0');
-        return `${dia}/${mes}/${partes[2]}`;
-    }
+  const partes: string[] = String(valor).split("/");
+  if (partes.length === 3) {
+    const dia: string = String(parseInt(partes[0])).padStart(2, '0');
+    const mes: string = String(parseInt(partes[1])).padStart(2, '0');
+    return `${dia}/${mes}/${partes[2]}`;
+  }
 
-    return String(valor).trim();
+  return String(valor).trim();
 }
