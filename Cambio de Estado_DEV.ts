@@ -42,10 +42,10 @@ async function main(
         // --- 1. DETECCIÓN DEL MÓDULO E INFRAESTRUCTURA (SESE) ---
         const nombreHojaActiva: string = workbook.getActiveWorksheet().getName();
         const CONFIGURACION_ENTIDADES: { [key: string]: { tabla: string, historial: string, prefijo: string, etiqueta: string, articulo: string, genero: string, estadoInicial: string, estadosBloqueantes: string[] } } = {
-            "INP_DES": { tabla: "TablaDesvios", historial: "TablaDesviosHistorial", prefijo: "SB-", etiqueta: "DESVÍO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
-            "INP_CAPAS": { tabla: "TablaCapas", historial: "TablaCapasHistorial", prefijo: "CAPA-", etiqueta: "CAPA", articulo: "la", genero: "a", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+            "INP_DES": { tabla: "TablaDesvios", historial: "TablaDesviosHistorial", prefijo: "SB-", etiqueta: "DESVÍO", articulo: "el", genero: "o", estadoInicial: "PENDIENTE", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+            "INP_CAPAS": { tabla: "TablaCapas", historial: "TablaCapasHistorial", prefijo: "CAPA-", etiqueta: "CAPA", articulo: "la", genero: "a", estadoInicial: "PENDIENTE", estadosBloqueantes: ["CERRADO", "ANULADO"] },
             "INP_AFECT": { tabla: "TablaAfectacion", historial: "TablaAfectacionHistorial", prefijo: "AF-", etiqueta: "AFECTACION", articulo: "la", genero: "a", estadoInicial: "VIGENTE", estadosBloqueantes: ["ANULADO"] },
-            "INP_REC": { tabla: "TablaReclamos", historial: "TablaReclamosHistorial", prefijo: "R-", etiqueta: "RECLAMO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+            "INP_REC": { tabla: "TablaReclamos", historial: "TablaReclamosHistorial", prefijo: "R-", etiqueta: "RECLAMO", articulo: "el", genero: "o", estadoInicial: "PENDIENTE", estadosBloqueantes: ["CERRADO", "ANULADO"] },
             "INP_EQ": { tabla: "TablaEquipos", historial: "TablaEquiposHistorial", prefijo: "EQ-", etiqueta: "EQUIPO", articulo: "el", genero: "o", estadoInicial: "EN USO", estadosBloqueantes: ["DADO DE BAJA", "EN REPARACIÓN"] }
         };
 
@@ -299,7 +299,7 @@ async function main(
                                                 .map(k => CONFIGURACION_ENTIDADES[k])
                                                 .find(c => c.tabla === nombreTablaRef);
 
-                                            const estadoInicialDependencia = configuracionReferencia ? configuracionReferencia.estadoInicial : "ABIERTO";
+                                            const estadoInicialDependencia = configuracionReferencia ? configuracionReferencia.estadoInicial : "PENDIENTE";
 
                                             const tieneDependenciaAbierta: boolean = tablaEnMemoria.datos.some((filaRef: ValorCelda[]) => {
                                                 return String(filaRef[idxForanea]).toUpperCase() === idABuscar && String(filaRef[idxEstadoRef]).toUpperCase() === estadoInicialDependencia;

@@ -63,7 +63,7 @@ def sincronizar_directorio(directorio_raiz: str, directorio_destino: str, etique
     Si es_produccion es True, elimina el sufijo '_DEV' de los nombres de destino.
     """
     print(f"\n🚀 INICIANDO SINCRONIZACIÓN -> [{etiqueta_entorno}]")
-    print(f"📁 Destino: {directorio_destino}")
+    print(f"📁 Destino: {etiqueta_entorno}")
     print("-" * 60)
 
     if directorio_destino == "RUTA_NO_CONFIGURADA" or not os.path.exists(directorio_destino):
@@ -102,7 +102,7 @@ def sincronizar_directorio(directorio_raiz: str, directorio_destino: str, etique
                 except Exception:
                     contador_errores += 1
             else:
-                print(f"    ⚠️  OMITIDO: No se halló '{nombre_archivo_osts}' en el destino.")
+                print(f"    ⚠️  OMITIDO: No se halló '{etiqueta_entorno}' [Ruta Protegida] en el destino.")
 
     print(f"📊 RESUMEN [{etiqueta_entorno}]: {contador_actualizados} actualizados | {contador_errores} errores.")
 

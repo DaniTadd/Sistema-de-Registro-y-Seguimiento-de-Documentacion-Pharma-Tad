@@ -42,10 +42,10 @@ async function main(
         // --- 1. DETECCIÓN DEL MÓDULO E INFRAESTRUCTURA ---
         const nombreHojaActiva: string = workbook.getActiveWorksheet().getName();
         const CONFIGURACION_ENTIDADES: { [key: string]: { tabla: string, historial: string, prefijo: string, etiqueta: string, articulo: string, genero: string, estadoInicial: string, estadosBloqueantes: string[] } } = {
-            "INP_DES": { tabla: "TablaDesvios", historial: "TablaDesviosHistorial", prefijo: "SB-", etiqueta: "DESVÍO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
-            "INP_CAPAS": { tabla: "TablaCapas", historial: "TablaCapasHistorial", prefijo: "CAPA-", etiqueta: "CAPA", articulo: "la", genero: "a", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+            "INP_DES": { tabla: "TablaDesvios", historial: "TablaDesviosHistorial", prefijo: "SB-", etiqueta: "DESVÍO", articulo: "el", genero: "o", estadoInicial: "PENDIENTE", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+            "INP_CAPAS": { tabla: "TablaCapas", historial: "TablaCapasHistorial", prefijo: "CAPA-", etiqueta: "CAPA", articulo: "la", genero: "a", estadoInicial: "PENDIENTE", estadosBloqueantes: ["CERRADO", "ANULADO"] },
             "INP_AFECT": { tabla: "TablaAfectacion", historial: "TablaAfectacionHistorial", prefijo: "AF-", etiqueta: "AFECTACION", articulo: "la", genero: "a", estadoInicial: "VIGENTE", estadosBloqueantes: ["ANULADO"] },
-            "INP_REC": { tabla: "TablaReclamos", historial: "TablaReclamosHistorial", prefijo: "R-", etiqueta: "RECLAMO", articulo: "el", genero: "o", estadoInicial: "ABIERTO", estadosBloqueantes: ["CERRADO", "ANULADO"] },
+            "INP_REC": { tabla: "TablaReclamos", historial: "TablaReclamosHistorial", prefijo: "R-", etiqueta: "RECLAMO", articulo: "el", genero: "o", estadoInicial: "PENDIENTE", estadosBloqueantes: ["CERRADO", "ANULADO"] },
             "INP_EQ": { tabla: "TablaEquipos", historial: "TablaEquiposHistorial", prefijo: "EQ-", etiqueta: "EQUIPO", articulo: "el", genero: "o", estadoInicial: "EN USO", estadosBloqueantes: ["DADO DE BAJA", "EN REPARACIÓN"] }
         };
 
@@ -353,7 +353,7 @@ async function main(
                                     const operador: string = String(regla[2]);
                                     const referenciaRaw: string = String(regla[3]);
 
-                                    if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A" || operador === "MADRE_ABIERTA_AL_CREAR" || operador === "ES_UNICO_ALFANUMERICO") {
+                                    if (operador === "EXISTE_EN" || operador === "ESTADO_DISTINTO_A" || operador === "MADRE_PENDIENTE_AL_CREAR" || operador === "ES_UNICO_ALFANUMERICO") {
                                         const nombreTablaRequerida: string = referenciaRaw.split("[")[0];
 
                                         if (nombreTablaRequerida && !diccionarioTablasAuxiliares[nombreTablaRequerida]) {
@@ -456,12 +456,12 @@ async function main(
                                                 }
                                             }
                                         }
-                                    } else if (operador === "MADRE_ABIERTA_AL_CREAR") {
+                                    } else if (operador === "MADRE_PENDIENTE_AL_CREAR") {
                                         const idxColumnaForanea: number = encabezadosTabla.indexOf(claveCampoA);
                                         const valorForaneoOriginal: string = idxColumnaForanea !== -1 ? String(valoresFilaOriginal[idxColumnaForanea]).trim().toUpperCase() : "";
                                         const cambioEntidadMadre: boolean = (valorForaneoOriginal !== String(valorAValidar).trim().toUpperCase());
 
-                                        // En actualización, solo exige que la entidad madre esté ABIERTA si se está reasignando el registro hijo a otra madre distinta
+                                        // En actualización, solo exige que la entidad madre esté PENDIENTE si se está reasignando el registro hijo a otra madre distinta
                                         if (cambioEntidadMadre) {
                                             const segmentosCondicion: string[] = referenciaRaw.split(";");
                                             if (segmentosCondicion.length === 3) {
